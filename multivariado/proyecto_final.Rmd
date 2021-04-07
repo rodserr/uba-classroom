@@ -1,0 +1,67 @@
+---
+title: "Métodos Cuantitativos para la Gestión y Análisis de Datos en Organizaciones"
+subtitle: "Consigna"
+author: "Rodrigo Serrano"
+date: "Mayo de 2021"
+output: 
+  pdf_document:
+    # keep_tex: true
+    highlight: default
+header-includes:
+  - \usepackage{titling}
+  - \pretitle{\begin{center}
+    \includegraphics[width=5in,height=3in]{encabezado.jpg}\LARGE\\ 
+    \bigskip
+    }
+  - \posttitle{\end{center}}
+  - \usepackage[sfdefault]{roboto}
+  - \usepackage[T1]{fontenc}
+---
+
+\
+
+## Métodos de Análisis Multivariado
+
+## Docentes: Silvina Del Duca y Silvia Vietri 
+
+\newpage
+\renewcommand{\SpecialCharTok}[1]{\textcolor[rgb]{0.81,0.36,0.00}{\textit{#1}}}
+\renewcommand{\FunctionTok}[1]{\textcolor[rgb]{0.13,0.29,0.53}{#1}}
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(ggplot2)
+library(tidyverse)
+thematic::thematic_rmd(
+  bg = "#ffffff", fg = '#4a4a4a', accent = '#e9832d', font = 'Roboto'
+  )
+```
+
+## R Markdown
+
+Ñ é
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+# Comment
+cars %>% head(n = 5) %>% .$mpg
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+mtcars %>% 
+  ggplot(aes(x = mpg, y = disp, col = cyl)) +
+  geom_point(size = 3)
+
+mtcars %>%
+  ggplot(aes(x = cyl, y = mpg)) +
+  geom_col(size = 3)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
