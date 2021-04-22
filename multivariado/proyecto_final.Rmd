@@ -7,15 +7,14 @@ output:
   pdf_document:
     # keep_tex: true
     highlight: default
+    includes:
+      in_header: ../preamble.tex
 header-includes:
   - \usepackage{titling}
   - \pretitle{\begin{center}
-    \includegraphics[width=5in,height=3in]{encabezado.jpg}\LARGE\\ 
+    \includegraphics[width=5in,height=3in]{../encabezado.jpg}\LARGE\\
     \bigskip
     }
-  - \posttitle{\end{center}}
-  - \usepackage[sfdefault]{roboto}
-  - \usepackage[T1]{fontenc}
 ---
 
 \
@@ -25,8 +24,6 @@ header-includes:
 ## Docentes: Silvina Del Duca y Silvia Vietri 
 
 \newpage
-\renewcommand{\SpecialCharTok}[1]{\textcolor[rgb]{0.81,0.36,0.00}{\textit{#1}}}
-\renewcommand{\FunctionTok}[1]{\textcolor[rgb]{0.13,0.29,0.53}{#1}}
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
