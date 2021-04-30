@@ -1,0 +1,301 @@
+---
+title: "Métodos Cuantitativos para la Gestión y Análisis de Datos en Organizaciones"
+subtitle: "Trabajo Final"
+author: "Rodrigo Serrano"
+date: "Mayo de 2021"
+output: 
+  pdf_document:
+    # keep_tex: true
+    highlight: default
+    includes:
+      in_header: ../preamble.tex
+header-includes:
+  - \usepackage{titling}
+  - \pretitle{\begin{center}
+    \includegraphics[width=5in,height=3in]{../encabezado.jpg}\LARGE\\
+    \bigskip
+    }
+---
+
+\
+
+## Técnicas de Investigacion Operativa para la Gestion {.unlisted .unnumbered}
+## Docentes: Docente 1 y Docente 2 {.unlisted .unnumbered}
+
+\newpage
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = F, message = F, fig.align = 'center')
+library(ggplot2)
+thematic::thematic_rmd(
+  bg = "#ffffff", fg = '#4a4a4a', accent = '#e9832d', font = 'Roboto'
+  )
+```
+
+Inicializamos las librerias necesarias para los distintos estudios
+
+```{r libraries}
+library(tidyverse) # Manipulacion de datos
+library(lpSolveAPI) # Programacion Lineal
+library(tidytuesdayR) # Datos para el problema de PL
+
+```
+
+## Programacion Lineal
+
+### Datos
+
+El problema de programacion lineal consistira en la minimizacion de la emision de CO2 por kg/persona/año en 11 tipos de alimentos, sujeto a restricciones dieteticas y de salud. El problema esta influenciado en el ejemplo 2.2-2 (Diet Problem) del libro *"Operations Research" de Hamdy Taha*
+
+Los datos son obtenidos con el paquete **`tidytuesday`**, el cual facilita datasets semanalmente para la practica y ejemplificacion de visualizaciones y modelos en el lenguaje R. En este caso utilizaremos el dataset de la semana 8 del año 2020. Este dataset es un estudio originalmente realizado por [nu3](https://www.nu3.de/blogs/nutrition/food-carbon-footprint-index-2018){style="color: blue"} y muestra la emision anual de CO2 por persona en 130 paises, y desagrupado en 11 tipos de alimentos
+
+```{r lp_datos, eval = F}
+# Carga de datos
+tuesdata <- tidytuesdayR::tt_load(2020, week = 8)
+
+food_consumption <- tuesdata$food_consumption %>% 
+  mutate(food_category = word(food_category, 1)) # Limpiamos los nombres de los tipos de alimentos
+```
+
+```{r lp_datos_csv, echo = F}
+food_consumption <- read_csv('tecnicas_investigacion/food_consumption.csv')
+```
+
+Podemos ver por ejemplo los datos de Argentina:
+
+```{r lp_example_argentina}
+food_consumption %>% filter(country == 'Argentina')
+```
+
+### Funcion Objetivo
+
+Los coeficientes de la funcion objetivo seran los promedios mundiales registrados en 2017, de emision de CO2 (por Kg) por persona al año, segun el tipo de alimento. En este sentido, las variables del modelo son definidas como:
+
+-   $x_{1} = \textrm{Kg de carne de vaca producida para consumo por persona al año}$
+
+-   $x_{2} = \textrm{Kg de Huevo producido para consumo por persona al año}$
+
+-   $x_{3} = \textrm{Kg de Pescado producido para consumo por persona al año}$
+
+-   $x_{4} = \textrm{Kg de Carne de cordero producida para consumo por persona al año}$
+
+-   $x_{5} = \textrm{Kg de Leche producida para consumo por persona al año}$
+
+-   $x_{6} = \textrm{Kg de Nueces y productos derivados, producida para consumo por persona al año}$
+
+-   $x_{7} = \textrm{Kg de carne de cerdo producida para consumo por persona al año}$
+
+-   $x_{8} = \textrm{Kg de carne de Aves producida para consumo por persona al año}$
+
+-   $x_{9} = \textrm{Kg de Arroz producida para consumo por persona al año}$
+
+-   $x_{10} = \textrm{Kg de Soja producida para consumo por persona al año}$
+
+-   $x_{11} = \textrm{Kg de Trigo producida para consumo por persona al año}$
+
+```{r lp_funcion_objetivo}
+# Objective Function
+co2_footprint <- food_consumption %>%
+   # Podemos elegir cualquier Pais, colocamos USA porque no tiene NULL
+   # en ningun tipo de alimento
+  filter(country == 'USA') %>%
+  transmute(
+    food_category,
+    kg_co2 = co2_emmission/consumption
+  ) %>% 
+  arrange(food_category)
+
+obj_function <- co2_footprint$kg_co2
+names(obj_function) <- co2_footprint$food_category
+
+obj_function
+
+```
+
+### Restricciones
+
+Las restricciones vendran dadas por requrimientos a nivel nutricional. Por ejemplo, limitaremos que el numero diario de calorias sea mayor a 2000 y menor a 2500, que las proteinas consumidas sean mayor a 50 gramos diarios, etc. La extraccion de estos datos se realizo manualmente para los 11 tipos de comidas, al igual que el limite impuesto.
+
+```{r lp_constrains}
+# Constrains
+# Se multiplica x10 para convertirlo a kg
+nutritional_values <- tibble(
+  food_category = unique(food_consumption$food_category) %>% sort(),
+  # Limitante Inferior
+  calories_min = c(250, 100, 206, 294, 42, 607, 242, 272, 130, 168, 364)*10,
+  proteins = c(26, 13, 22, 25, 3.4, 20, 27, 27, 2.7, 12.4, 12.6)*10,
+  potassium = c(.318, .126, .384, .310, .150, .632, .423, .223, .35, .539, .107)*10,
+  # Limitante Superior
+  calories_max = c(250, 100, 206, 294, 42, 607, 242, 272, 130, 168, 364)*10,
+  gluten = c(rep(0, 10), 12.4)*10,
+  saturated_fat = c(6, 3.3, 2.5, 9, 0.6, 9, 5, 3.8, 0.1, 6.4, 2.5)*10,
+  lactose = c(rep(0, 4), 4, rep(0, 6))*10
+)
+
+cons_list <- nutritional_values %>% 
+  as.list() %>% 
+  .[-1] # Removemos la columna food_categories
+cons_rhs <- c(
+  calories_min = 2000, proteins = 50, potassium = 4.5,
+  calories_max = 2500, gluten = 10, saturated_fat = 20, lactose = 15
+  )*365 # Anualizamos
+
+cons_type <- c(rep('>=', 3), rep('<=', 4))
+```
+
+Ademas establecemos limites superiores e inferiores para los coeficientes de la funcion objetivo, los cuales vienen dado por los maximos y minimos del dataset en estudio. Esto se realiza para evitar resultados muy elevados en algun tipo de alimento
+
+```{r lp_boundaries}
+# Boundaries
+limit_consumption <- food_consumption %>%
+  group_by(food_category) %>% 
+  summarise(
+    min_consumption = min(consumption),
+    max_consumption = max(consumption)
+  ) %>% 
+  arrange(food_category)
+
+```
+
+### Aplicacion del modelo PL
+
+Se escribio una funcion para aplicar de manera mas comoda el modelo de programacion lineal. La funcion toma como argumentos la funcion objetivo, las restricciones, el tipo de optimizacion y las limitantes (opcional). Y arroja el resultado optimo, los coeficientes optimos de la funcion objetivo y las matrices de sensibilidad, tanto del RHS como de los coeficientes de la funcion objetivo. En este [link](https://github.com/rodserr/uba-classroom/blob/main/tecnicas_investigacion/programacion_lineal/lp_ejercicios_1.R) se encuentra un script en el cual se ejemplifica y comprueba el uso de la funcion, aplicado a algunos ejemplos del libro de Taha
+
+```{r lp_solver_function}
+solve_lp <- function(obj_function, constrains, constrains_rhs, constrain_type, 
+                     optimization_type = 'max', model_name = 'lp_model', 
+                     .lower = NULL, .upper = NULL){
+  
+  # obj_function: vector nombrado de los coeficientes de la funcion objetivo
+  # constrains: lista nombrada con los coeficientes de las restricciones (LHS)
+  # constrains_rhs; lista nombrada con los valores de las restricciones (RHS)
+  # constrain_type: vector de longitud igual al numero de restricciones,
+  #                 definiendo el tipo de restriccion '<=' '>=' '='
+  # optimization_type: string definiendo el tipo de optimizacion 'max' o 'min'
+  # model_name: Nombre del modelo a imprimir en los resultados
+  # .lower: lower boundaries
+  # .upper: upper boundaries
+  
+  # return: lista nombrada con los resultados de la optimizacion y analisis de sensibilidad
+  
+  n_coef_obj <- length(obj_function)
+  
+  # Funcion Objetivo
+  lp <- make.lp(nrow = 0, ncol = n_coef_obj)
+  
+  name.lp(lp, model_name)
+  
+  colnames(lp) <- names(obj_function)
+  
+  aux <- lp.control(
+    lp, simplextype = 'primal', sense = optimization_type, pivoting = 'steepestedge'
+    )
+  
+  set.objfn(lp, obj = unname(obj_function))
+  
+  # Restricciones
+  set.type(lp, columns = 1:n_coef_obj, type = 'real')
+  
+  for(cons in 1:length(constrains)){
+    
+    add.constraint(
+      lp, 
+      xt = constrains[[cons]], 
+      type = constrain_type[[cons]], 
+      rhs = constrains_rhs[[cons]]
+      )
+    
+  }
+  
+  set.bounds(lp, lower = .lower, upper = .upper, columns = 1:n_coef_obj)
+  
+  rownames(lp) <- names(constrains)
+  
+  # Resolver y extraer resultados
+  solve(lp)
+  
+  Var.Dec. <- matrix(get.variables(lp), 1, n_coef_obj)
+  
+  colnames(Var.Dec.) <- colnames(lp)
+  rownames(Var.Dec.) <- 'Resultado Optimo'
+  
+  Func.Obj. <- get.objective(lp)
+  
+  Resultado.lp <- list(Problema = lp, Optimo = Func.Obj., Var.Dec. = Var.Dec.)
+  
+  # Analisis de Sensibilidad: RHS Restricciones
+  SensRHS <- matrix(NA, nrow(lp), 5)
+  rownames(SensRHS) <- rownames(lp)
+  colnames(SensRHS) <- c('Holgura', 'Precio Sombra', 'LI rhs', 'rhs Actual', 'LS rhs')
+  
+  SensRHS[, 'Holgura'] <- get.rhs(lp)-get.constraints(lp)
+  SensRHS[, 'Precio Sombra'] <- get.sensitivity.rhs(lp)$duals[1:nrow(lp)]
+  SensRHS[, 'rhs Actual'] <- get.rhs(lp)
+  
+  SensRHS[SensRHS[, 'Holgura'] == 0, 'LI rhs'] <- 
+    get.sensitivity.rhs(lp)$dualsfrom[1:nrow(lp)][SensRHS[, 'Holgura'] == 0]
+  SensRHS[SensRHS[, 'Holgura'] == 0, 'LS rhs'] <- 
+    get.sensitivity.rhs(lp)$dualstill[1:nrow(lp)][SensRHS[, 'Holgura'] == 0]
+  SensRHS[SensRHS[, 'Holgura'] > 0, 'LI rhs'] <- 
+    get.constraints(lp)[SensRHS[, 'Holgura'] > 0]
+  SensRHS[SensRHS[, 'Holgura'] > 0, 'LS rhs'] <- Inf
+  
+  # Analisis de Sensibilidad: Coeficientes de la ecuacion
+  SensObj <- matrix(NA, ncol(lp), 4)
+  rownames(SensObj) <- colnames(lp)
+  colnames(SensObj) <- c('Min.Coef.Obj.', 'Coef.Obj.', 'Max.Coef.Obj.', 'Precio Reducido')
+  
+  for (i in 1:ncol(lp)){
+    SensObj[i, 'Coef.Obj.'] <- get.column(lp, i)$column[1]
+  }
+  
+  SensObj[, 'Min.Coef.Obj.'] <- get.sensitivity.obj(lp)$objfrom
+  SensObj[, 'Max.Coef.Obj.'] <- get.sensitivity.obj(lp)$objtill
+  
+  SensObj[, 'Precio Reducido'] <- 
+    -get.sensitivity.rhs(lp)$duals[(nrow(lp)+1):(nrow(lp)+ncol(lp))]
+  
+  list(
+    Resultado.lp = Resultado.lp,
+    SensRHS = SensRHS,
+    SensObj = SensObj
+  )
+  
+}
+
+```
+
+```{r lp_solver}
+# Ejecucion del modelo de programacion Lineal
+min_co2 <- solve_lp(
+  obj_function, cons_list, cons_rhs, cons_type, 
+  optimization_type = 'min', model_name = 'CO2 Emmisison',
+  .lower = limit_consumption$min_consumption, .upper = limit_consumption$max_consumption
+  )
+
+min_co2$Resultado.lp
+  
+```
+
+La minima cantidad de CO2 que produce una persona teniendo en cuenta los 11 tipos de Alimento en estudio y cumpliendo con las resticciones alimenticias establecidas previamente, es de **`r round(min_co2$Resultado.lp$Optimo)` kg al Año**
+
+Se puede observar que los Alimentos que obtienen mayor peso son Pescados, Arroz, y Leche, seguidos de Cerdo, Soja y Trigo. Los demas tipos de carne y huevo tienen pesos cercanos a 0.
+
+```{r lp_sens_rhs}
+min_co2$SensRHS %>%
+  as_tibble(rownames = 'restricciones') %>%
+  # Se restringen los valores Inf y se convierte a dias, para una mejor lectura
+  mutate(across(where(is.numeric), ~if_else(abs(.x) > 1e10, Inf, .x)/365)) %>%
+  knitr::kable(digits = 2, caption = 'Analisis de Sensibilidad RHS')
+```
+
+Asi mismo, se observa que las calorias minimas que puede consumir una persona sin afectar los pesos de la solucion optima, puede variar entre **`r round(min_co2$SensRHS['calories_min', 'LI rhs']/365, 0)` y `r round(min_co2$SensRHS['calories_min', 'LS rhs']/365, 0)`** calorias al dia. Esto se cumple siempre y cuando las demas restricciones no sean modificadas. Tambien se obseva que el variar en un gramo la restriccion de potasio, equivale a una variacion de **`r round(min_co2$SensRHS['potassium', 'Precio Sombra'], 1)`kg** de emision de CO2 anual (notar que debemos multiplicar x365 para obtenerlo Anual)
+
+```{r lp_sens_obj}
+min_co2$SensObj %>%
+  as_tibble(rownames = 'food_type') %>% 
+  mutate(across(where(is.numeric), ~if_else(abs(.x) > 1e10, Inf, .x))) %>% 
+  knitr::kable(digits = 2, caption = 'Analisis de Sensibilidad de la Funcion Objetivo')
+```
+
+

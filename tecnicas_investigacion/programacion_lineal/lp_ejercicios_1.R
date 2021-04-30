@@ -1,16 +1,19 @@
 library(lpSolveAPI)
 
 solve_lp <- function(obj_function, constrains, constrains_rhs, constrain_type, 
-                     optimization_type = 'max', model_name = 'lp_model'){
+                     optimization_type = 'max', model_name = 'lp_model', .lower = NULL, .upper = NULL){
   
   # obj_function: vector nombrado de los coeficientes de la funcion objetivo
   # constrains: lista nombrada con los coeficientes de las restricciones (LHS)
   # constrains_rhs; lista nombrada con los valores de las restricciones (RHS)
-  # constrain_type: vector de longitud igual al numero de restricciones definiendo el tipo de restriccion '<=' '>=' '='
+  # constrain_type: vector de longitud igual al numero de restricciones,
+  #                 definiendo el tipo de restriccion '<=' '>=' '='
   # optimization_type: string definiendo el tipo de optimizacion 'max' o 'min'
   # model_name: Nombre del modelo a imprimir en los resultados
+  # .lower: lower boundaries
+  # .upper: upper boundaries
   
-  # return: lista nombrada con los resultados de la optimizacion y el analisis de sensibilidad
+  # return: lista nombrada con los resultados de la optimizacion y analisis de sensibilidad
   
   n_coef_obj <- length(obj_function)
   
@@ -21,7 +24,9 @@ solve_lp <- function(obj_function, constrains, constrains_rhs, constrain_type,
   
   colnames(lp) <- names(obj_function)
   
-  aux <- lp.control(lp, simplextype = 'primal', sense = optimization_type, pivoting = 'steepestedge')
+  aux <- lp.control(
+    lp, simplextype = 'primal', sense = optimization_type, pivoting = 'steepestedge'
+    )
   
   set.objfn(lp, obj = unname(obj_function))
   
@@ -30,11 +35,16 @@ solve_lp <- function(obj_function, constrains, constrains_rhs, constrain_type,
   
   for(cons in 1:length(constrains)){
     
-    add.constraint(lp, xt = constrains[[cons]], type = constrain_type[[cons]], rhs = constrains_rhs[[cons]])
+    add.constraint(
+      lp, 
+      xt = constrains[[cons]], 
+      type = constrain_type[[cons]], 
+      rhs = constrains_rhs[[cons]]
+      )
     
   }
   
-  set.bounds(lp, lower = rep(0, n_coef_obj), upper = rep(Inf, n_coef_obj), columns = 1:n_coef_obj)
+  set.bounds(lp, lower = .lower, upper = .upper, columns = 1:n_coef_obj)
   
   rownames(lp) <- names(constrains)
   
@@ -44,7 +54,7 @@ solve_lp <- function(obj_function, constrains, constrains_rhs, constrain_type,
   Var.Dec. <- matrix(get.variables(lp), 1, n_coef_obj)
   
   colnames(Var.Dec.) <- colnames(lp)
-  rownames(Var.Dec.) <- 'Produccion Optima'
+  rownames(Var.Dec.) <- 'Resultado Optimo'
   
   Func.Obj. <- get.objective(lp)
   
@@ -59,9 +69,12 @@ solve_lp <- function(obj_function, constrains, constrains_rhs, constrain_type,
   SensRHS[, 'Precio Sombra'] <- get.sensitivity.rhs(lp)$duals[1:nrow(lp)]
   SensRHS[, 'rhs Actual'] <- get.rhs(lp)
   
-  SensRHS[SensRHS[, 'Holgura'] == 0, 'LI rhs'] <- get.sensitivity.rhs(lp)$dualsfrom[1:nrow(lp)][SensRHS[, 'Holgura'] == 0]
-  SensRHS[SensRHS[, 'Holgura'] == 0, 'LS rhs'] <- get.sensitivity.rhs(lp)$dualstill[1:nrow(lp)][SensRHS[, 'Holgura'] == 0]
-  SensRHS[SensRHS[, 'Holgura'] > 0, 'LI rhs'] <- get.constraints(lp)[SensRHS[, 'Holgura'] > 0]
+  SensRHS[SensRHS[, 'Holgura'] == 0, 'LI rhs'] <- 
+    get.sensitivity.rhs(lp)$dualsfrom[1:nrow(lp)][SensRHS[, 'Holgura'] == 0]
+  SensRHS[SensRHS[, 'Holgura'] == 0, 'LS rhs'] <- 
+    get.sensitivity.rhs(lp)$dualstill[1:nrow(lp)][SensRHS[, 'Holgura'] == 0]
+  SensRHS[SensRHS[, 'Holgura'] > 0, 'LI rhs'] <- 
+    get.constraints(lp)[SensRHS[, 'Holgura'] > 0]
   SensRHS[SensRHS[, 'Holgura'] > 0, 'LS rhs'] <- Inf
   
   # Analisis de Sensibilidad: Coeficientes de la ecuacion
@@ -76,7 +89,8 @@ solve_lp <- function(obj_function, constrains, constrains_rhs, constrain_type,
   SensObj[, 'Min.Coef.Obj.'] <- get.sensitivity.obj(lp)$objfrom
   SensObj[, 'Max.Coef.Obj.'] <- get.sensitivity.obj(lp)$objtill
   
-  SensObj[, 'Precio Reducido'] = -get.sensitivity.rhs(lp)$duals[(nrow(lp)+1):(nrow(lp)+ncol(lp))]
+  SensObj[, 'Precio Reducido'] <- 
+    -get.sensitivity.rhs(lp)$duals[(nrow(lp)+1):(nrow(lp)+ncol(lp))]
   
   list(
     Resultado.lp = Resultado.lp,
