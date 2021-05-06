@@ -3,7 +3,7 @@ library(FactoMineR)
 library(factoextra)
 
 # Tenure: Indicates the total amount of months that the customer has been with the company.
-telco_raw <- read_csv('multivariado/WA_Fn-UseC_-Telco-Customer-Churn.csv')
+telco_raw <- read_csv('data/WA_Fn-UseC_-Telco-Customer-Churn.csv')
 
 telco_raw %>% 
   # select(-customerID) %>% 
@@ -57,4 +57,18 @@ get_mca_ind(mca)$coord %>% as_tibble() %>%
   ggplot(aes(x = `Dim 1`, y = `Dim 3`, color = Churn)) +
   geom_point()
 
+# Cluster
+hc_telco <- get_mca_ind(mca)$coord %>% 
+  dist(method = "euclidean") %>% 
+  hclust(method = "ward.D2")
 
+clusters_telco <- cutree(hc_telco, k = 2) %>%
+  as.data.frame() %>%
+  rownames_to_column('id') %>% 
+  rename(cluster = '.') %>% 
+  mutate(cluster = as_factor(cluster))
+
+telco_raw %>% 
+  na.omit() %>% 
+  bind_cols(clusters_telco) %>% 
+  count(Churn, cluster)

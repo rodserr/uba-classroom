@@ -93,3 +93,15 @@ food_consumption %>%
   ggplot(aes(co2_emmission)) +
   geom_boxplot()
 
+# nutritional_values %>% 
+#   bind_rows() %>% 
+#   write_csv('tecnicas_investigacion/nutritional_values.csv')
+# 
+# limit_consumption %>% 
+#   write_csv('tecnicas_investigacion/limit_coef.csv')
+# 
+# tibble(
+#   foot_type = names(obj_function),
+#   coef = unname(obj_function)
+# ) %>% write_csv('tecnicas_investigacion/coef_objective.csv')
+
