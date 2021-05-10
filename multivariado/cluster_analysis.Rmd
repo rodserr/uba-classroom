@@ -1,0 +1,188 @@
+---
+title: "Métodos Cuantitativos para la Gestión y Análisis de Datos en Organizaciones"
+subtitle: "Ejercicio Practico: Analisis de Cluster"
+author: "Rodrigo Serrano"
+date: "Mayo de 2021"
+output: 
+  pdf_document:
+    # keep_tex: true
+    highlight: default
+    includes:
+      in_header: ../preamble.tex
+header-includes:
+  - \usepackage{titling}
+  - \pretitle{\begin{center}
+    \includegraphics[width=5in,height=3in]{../encabezado.jpg}\LARGE\\
+    \bigskip
+    }
+urlcolor: blue
+---
+
+\
+
+## Métodos de Análisis Multivariado {.unlisted .unnumbered}
+
+## Docentes: Silvina Del Duca y Silvia Vietri {.unlisted .unnumbered}
+
+\newpage
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = F, message = F, fig.align = 'center', fig.showtext = T)
+library(ggplot2)
+library(tidyverse)
+thematic::thematic_rmd(
+  bg = "#ffffff", fg = '#4a4a4a', accent = '#e9832d', font = 'Roboto'
+  )
+```
+
+Inicializamos las librerias necesarias y leemos los datos desde excel. Verificamos que no hayan datos faltantes 
+
+```{r init}
+library(tidyverse) # Manipulacion de datos
+library(readxl) # Leer excel
+library(NbClust) # Determinar numero de clusters
+library(highcharter) # Graficar Mapas
+library(gt) # Generar tablas
+
+paises <- read_excel('multivariado/Base de datos Ejemplo 2 ACP ( países europeos ).xlsx') %>% 
+  rename(pais = ...1)
+
+which(is.na(paises))
+
+```
+
+
+Veamos la distribucion de cada sector para identificar valores atipicos
+
+```{r descr_boxplot}
+paises %>% 
+  pivot_longer(-pais) %>% 
+  ggplot(aes(x = name, y = value/100)) +
+  geom_boxplot() +
+  scale_y_continuous(labels = scales::percent) +
+  coord_flip() +
+  labs(x = '', y = '')
+```
+
+Observamos que existe un pais cuya fuerza laboral se encuentra concentrada en mas del 60% para el sector Agricultura. Veamos de que pais se trata y lo exluimos de la muestra ya que puede afectar la formacion de los clusters
+
+```{r anomaly}
+paises %>% filter(Agricultura > 60)
+
+paises_clean <- paises %>% 
+  filter(Agricultura < 60)
+
+```
+
+Primero aplicamos una agrupacion jerarquica para identificar el numero de cluster optimo
+
+```{r hc}
+hc <- paises_clean %>% 
+  column_to_rownames('pais') %>%
+  scale() %>%
+  dist(method = "euclidean") %>% 
+  hclust(method = 'ward.D2')
+
+plot(hc)
+
+ncluster <- paises_clean %>% 
+  column_to_rownames('pais') %>% 
+  NbClust(distance = "euclidean", min.nc = 2, max.nc = 8, method = "ward.D2", index = "alllong")
+
+```
+
+La mayoria de los indices indican que el numero optimo de clusters a formar es 2. Aplicaremos ahora el metodo de k-means de dos maneras:
+
+- Iniciando los centroides con las medias de los grupos arrojado por el metodo jerarquico
+- Iniciando los centroides aleatoriamente
+
+```{r kmeans}
+centroids <- paises_clean %>% 
+  mutate(hcluster = ncluster$Best.partition) %>% 
+  group_by(hcluster) %>% 
+  summarise(
+    across(where(is.numeric), mean)
+  ) %>% 
+  select(-hcluster)
+  
+km_cent <- paises_clean %>% 
+  column_to_rownames('pais') %>% 
+  kmeans(centroids)
+
+km_random <- paises_clean %>% 
+  column_to_rownames('pais') %>% 
+  kmeans(2)
+
+list(centroid = km_cent, random = km_random) %>% 
+  map_dfr(
+    ~.x[c('totss', 'tot.withinss', 'betweenss')] %>% flatten_df(), .id = 'center_type'
+  ) %>% 
+  gt::gt()
+```
+
+Podemos observar que en este caso la inicializacion de los centroides no afecta el resultado final. Verifiquemos ahora cuales son los sectores que mas influyen en la determinacion de los grupos mediante el **t test**
+
+```{r t_test}
+paises_clust <- paises_clean %>% 
+  mutate(cluster = as_factor(km_cent$cluster))
+
+list_variables <- paises_clust %>% 
+  select(-pais, -cluster) %>% 
+  as.list()
+
+list_test <- map2(list_variables, list(km_cent$cluster), ~t.test(.x~.y))
+
+list_test %>% 
+  map_dfr(~.x[c('p.value', 'estimate')] %>% flatten_df(), .id = 'sector') %>% 
+  gt::gt() %>% 
+  gt::fmt_number('p.value', decimals = 4) %>% 
+  gt::fmt_number(contains('mean'), decimals = 1)
+
+```
+
+Hay 4 sectores que marcan mayor diferencia entre los cluster. Por un lado los sectores de servicios y finanzas y por otro lado sectores de mano de obra de campo, como Agricultura y Mineria. Podemos ahora ver la distribucion de los paises en las dos variables mas influyentes
+
+```{r scatter}
+paises_clust %>% 
+  ggplot(aes(x = `Servicios Ind`, y = Agricultura, fill = cluster, label = pais)) + 
+  geom_label(color = 'white') +
+  theme(
+    legend.position = 'top',
+    legend.justification = 'left'
+  ) +
+  scale_fill_manual(values = c("#e9832d", "#04a494", "#4a4a4a"))
+
+```
+
+Observamos que el cluster 1 responde a los paises que tienen poca mano de obra en el sector Agricultura y destinan mas empleos al sector Finanzas y Servicios. Caso contrario al cluster 2, que corresponde a paises que destinan mas empleos al sector Agricultura que al de Servicios y finanzas. Podriamos suponer que el metodo de agrupacion logra diferenciar entre paises "desarrollados" que destinan mayor cantidad a "empleos de oficina", y paises "Agricultores", es decir que tienen una mayor cantidad de mano de obra en trabajo de campo.
+
+Podemos ver tambien la agrupacion geografica de los clusters
+
+```{r plotmap}
+countries <- c(
+  "Germany", "Austria", "Belgium", "Bulgaria", "Czechoslovakia",
+  "Denmark", "Spain", "Finland", "France", "Greece", "Netherlands", 
+  "Hungary", "Ireland", "Italy", "Luxembourg", "Norway",
+  "Poland", "Portugal", "United Kingdom", "Romania", "Russia",
+  "Sweden", "Switzerland"
+)
+
+data_class <-list(
+  list(name = 'Trabajo de Oficina', from = 1, to = 2, color = '#e9832d'),
+  list(name = 'Trabajo de Campo', from = 2, to = 3, color = '#04a494')
+)
+
+hcmap(
+  "custom/europe",
+  data = paises_clust %>%  
+    arrange(pais) %>% 
+    transmute(grupo = as.numeric(cluster), name = countries) %>% 
+    add_row(grupo = c(2, 2), name = c('Slovakia', 'Czech Republic')),
+  joinBy = 'name',
+  value = 'grupo'
+) %>% 
+  hc_colorAxis(dataClassColor = "category", dataClasses = data_class)
+
+```
+
+Podemos observar que el cluster de "Trabajo de Oficina" esta conformado por paises de europa central y escandinavos mientras que el cluster "Trabajo de Campo" esta conformado en su mayoria por paises de europa oriental. Tambien vemos que los paises vecinos pertenecen al mismo cluster, por lo que podriamos suponer que existe una variable geografica que afecta la distribucion del empleo en los paises
