@@ -8,13 +8,7 @@ output:
     # keep_tex: true
     highlight: default
     includes:
-      in_header: ../preamble.tex
-header-includes:
-  - \usepackage{titling}
-  - \pretitle{\begin{center}
-    \includegraphics[width=5in,height=3in]{../encabezado.jpg}\LARGE\\
-    \bigskip
-    }
+      in_header: ../md_formats/multivariado.tex
 urlcolor: blue
 ---
 

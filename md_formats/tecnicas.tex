@@ -1,0 +1,29 @@
+\usepackage[margin=2.5cm]{geometry}
+
+\usepackage[sfdefault]{roboto}
+\usepackage[T1]{fontenc}
+\usepackage{tikz}
+\usepackage{graphicx}
+\usepackage{fancyhdr}
+\pagestyle{fancy}
+\setlength\headheight{50pt}
+\fancyhead[R]{\includegraphics[width=7cm]{../md_formats/encabezado.jpg}}
+\renewcommand{\headrulewidth}{0pt}
+
+% \let\FootRule\footrule
+
+\fancypagestyle{plain}{
+
+\fancyhead[R]{\includegraphics[width=7cm]{../md_formats/encabezado.jpg}}
+% \fancyfoot[C]{2021}
+% \renewcommand{\footrulewidth}{.05cm}
+% \renewcommand\footrule{\textcolor{blue}{\FootRule}}
+ 
+\setlength\footskip{11pt}
+\fancyfoot[C,C]{2021\vskip 3mm {\color{blue}\hrule height .05cm }}
+
+}
+
+\renewcommand{\SpecialCharTok}[1]{\textcolor[rgb]{0.81,0.36,0.00}{\textit{#1}}}
+\renewcommand{\FunctionTok}[1]{\textcolor[rgb]{0.13,0.29,0.53}{#1}}
+

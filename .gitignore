@@ -45,3 +45,7 @@ vignettes/*.pdf
 *.mp4
 *.html
 *.jpg
+
+# Hide evaluations
+SERRANO_*.Rmd
+SERRANO_*.pdf
