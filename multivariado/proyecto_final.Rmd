@@ -1,20 +1,15 @@
 ---
 title: "Métodos Cuantitativos para la Gestión y Análisis de Datos en Organizaciones"
-subtitle: "Estudio del consumo de alimentos por paises y su Huella de Carbono"
+subtitle: "Agrupación de países según el consumo en 11 tipos de alimentos"
 author: "Rodrigo Serrano"
-date: "Mayo de 2021"
+date: "Junio de 2021"
 output: 
   pdf_document:
+    fig_height: 4
     # keep_tex: true
     highlight: default
     includes:
       in_header: ../md_formats/multivariado.tex
-header-includes:
-  - \usepackage{titling}
-  - \pretitle{\begin{center}
-    \includegraphics[width=5in,height=3in]{../md_formats/encabezado.jpg}\LARGE\\
-    \bigskip
-    }
 urlcolor: blue
 ---
 
@@ -26,69 +21,76 @@ urlcolor: blue
 
 \newpage
 
+## Introducción
+
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE, warning = F, message = F, fig.align = 'center', fig.showtext = T)
-library(ggplot2)
-library(tidyverse)
 thematic::thematic_rmd(
-  bg = "#ffffff", fg = '#4a4a4a', accent = '#e9832d', font = 'Roboto'
+  bg = "#ffffff", fg = '#4a4a4a', accent = '#e9832d', font = 'Roboto', qualitative = c("#e9832d", "#04a494", "#4a4a4a", "#ffffff")
   )
 ```
 
-Inicializamos las librerias necesarias para los distintos estudios
+El objetivo del presente trabajo es ejemplificar dos técnicas de análisis multivariado vistas en clase. En este caso se utiliza una base de datos que contiene el consumo (en kg/persona al año) de 11 tipos de alimentos en 130 países. Se busca agrupar los países según el patrón de consumo y analizar su significatividad.
 
-```{r libraries}
-library(tidyverse) # Manipulacion de datos
-library(tidytuesdayR) # Extraccion de datos
-library(psych) # Analisis Factorial
-library(corrplot) # Grafico de Correlaciones
-library(gt) # Creacion de tablas
+El **análisis de Cluster** es un conjunto de métodos estadísticos que tienen como objetivo agrupar individuos dentro de un set de datos. Dicha agrupación busca que las observaciones de un mismo grupo compartan características similares, mientras que las observaciones de distintos grupos sean distintas. En este trabajo se aplica un análisis de cluster jerárquico aglomerativo, es decir, se parte de que cada individuo pertenece a su propio grupo, y en cada etapa o paso del algoritmo, se forman grupos mas grandes, minimizando una función de similitud o distancia.
 
-```
+El **análisis de la varianza** es un conjunto de métodos y procedimientos estadísticos que compara grupos de observaciones y comprueba si existe diferencia significativa entre las medias de los mismos, o si por el contrario sus medias poblacionales no difieren. Formalmente, el ANOVA consiste en el constraste:
+
+$$
+\begin{aligned}
+Ho&: \mu_{1} = \mu_{2} = \cdots =\mu_{k} \\
+Ha&: \text{No todas las medias son iguales}
+\end{aligned}
+$$
+Siendo $\mu_{i}$ la media del $i$-ésimo grupo
 
 ## Datos
 
-Los datos son obtenidos con el paquete **`tidytuesday`**, el cual facilita datasets semanalmente para la practica y ejemplificacion de visualizaciones y modelos en el lenguaje R. En este caso utilizaremos el dataset de la semana 8 del año 2020. Este dataset es un estudio originalmente realizado por [nu3](https://www.nu3.de/blogs/nutrition/food-carbon-footprint-index-2018) y expone dos variables registradas en 130 paises:
+Se inician las librerías necesarias para los distintos estudios.
+
+```{r libraries}
+library(tidyverse) # Manipulación de datos
+library(tidytuesdayR) # Extracción de datos
+library(corrplot) # Gráfico de Correlaciones
+library(gt) # Creación de tablas
+library(highcharter) # Gráfico de Mapa
+```
+
+Los datos son obtenidos con el paquete **`tidytuesdayR`**, el cual facilita un conjunto de datos semanalmente para la práctica y ejemplificación de visualizaciones y modelos en el lenguaje R. En este caso se utiliza el set de la semana 8 del año 2020. El mismo representa un estudio originalmente realizado por [nu3](https://www.nu3.de/blogs/nutrition/food-carbon-footprint-index-2018) donde expone dos variables registradas en 130 países:
 
 - **consumption:** cantidad (en kg) de alimento anual producido para consumo por persona
-- **co2_emmission:** emision (en kg) anual de CO2 por persona
+- **co2_emmission:** emisión (en kg) anual de CO2 por persona.
 
 ```{r datos_init, eval = F}
 # Carga de datos
 tuesdata <- tidytuesdayR::tt_load(2020, week = 8)
 
 food_consumption <- tuesdata$food_consumption %>% 
-  mutate(food_category = word(food_category, 1)) # Limpiamos los nombres de los tipos de alimentos
+  mutate(food_category = word(food_category, 1)) # Limpiar los nombres de los tipos de alimentos
 ```
 
 ```{r datos_csv, echo = F}
 food_consumption <- read_csv('data/food_consumption.csv')
 ```
 
-Podemos ver por ejemplo los datos de Argentina:
+Como ejemplo, se pueden apreciar los datos de Argentina:
 
 ```{r descriptive_argentina}
 food_consumption %>%
   filter(country == 'Argentina') %>%
-  gt::gt()
+  gt::gt() %>% 
+  tab_header(title = 'Datos de Argentina')
 ```
 
-## Analisis Descriptivo
+### Ánálisis Descriptivo
 
-Primero veamos los valores faltantes y la distribucion de las variables
+Primero se verifica los valores faltantes.
 
 ```{r descriptives_skim}
 which(is.na(food_consumption))
-
-food_consumption %>%
-  pivot_longer(-c(country, food_category)) %>%
-  ggplot(aes(value)) +
-  geom_density() +
-  facet_wrap(~name) +
-  labs(x = '')
 ```
 
-Se observa que la data no tiene valores nulos o perdidos en ningun campo y que ambas variables metricas (consumption y co2_emmission) estan sesgadas hacia la derecha. Veamos ahora la distribucion de las variables por tipo de alimento
+La data no tiene valores nulos en ningún campo. A continuación, se muestra la distribución de las variables por tipo de alimento.
 
 ```{r descriptive_boxplot}
 food_consumption %>%
@@ -100,118 +102,76 @@ food_consumption %>%
 
 ```
 
-Se puede observar que el tipo de alimento con mayor emision de CO2 es la carne de res, sin embargo la de mayor cantidad de produccion es la leche de vaca, seguido por el trigo y el arroz
+Se puede observar que el tipo de alimento con mayor emisión de CO2 es la carne de res, sin embargo, la de mayor consumo es la leche de vaca, seguido por el trigo y arroz. También se observa que hay dos valores atípicos, uno en la variable `Milk` y otro en la variable `Fish`.
 
-Como bien se sabe, los alimentos de origen animal tienen una huella de carbono mucho mayor a los alimentos de origen no animal. Vemoas que esto se cumpla en el dataset
+<!-- Como bien se sabe, los alimentos de origen animal tienen una huella de carbono mucho mayor a los alimentos de origen no animal. Veamos que esto se cumpla. -->
+<!-- ```{r descriptive_source} -->
+<!-- food_consumption %>% -->
+<!--   group_by(source) %>% -->
+<!--   summarise( -->
+<!--     consumption = sum(consumption), -->
+<!--     co2_emmission = sum(co2_emmission), -->
+<!--     .groups = 'drop' -->
+<!--     ) %>% -->
+<!--   pivot_longer(-source) %>% -->
+<!--   ggplot(aes(x = value, y = source)) + -->
+<!--   geom_col() + -->
+<!--   facet_wrap(~name, scales = 'free_x', ncol = 2) + -->
+<!--   labs(x = '') -->
+<!-- ``` -->
 
-```{r descriptive_source}
-# Creamos el campo source para identificar si el food_category es de origen animal o no-animal
-food_consumption <- food_consumption %>% 
-  mutate(
-    source = if_else(
-      food_category %in% c('Wheat', 'Rice', 'Nuts', 'Soybeans'), 'non-animal', 'animal'
-      )
-  )
+Para aplicar los análisis solo se trabaja con la variable **`consumption`**. Se forma un set de datos donde los individuos son los países, y los tipos de alimentos son las variables a asociar. Como se observó en el gráfico de cajas, existen algunos países con valores atípicos, dado que el análisis de Clusters es sensible a los mismos, se aplica el test de Mahalanobis para identificarlos y excluirlos.
 
-food_consumption %>%
-  group_by(source) %>%
-  summarise(
-    consumption = sum(consumption),
-    co2_emmission = sum(co2_emmission),
-    .groups = 'drop'
-    ) %>%
-  pivot_longer(-source) %>%
-  ggplot(aes(x = value, y = source)) +
-  geom_col() +
-  facet_wrap(~name, scales = 'free_x', ncol = 2) +
-  labs(x = '')
-```
-
-Veamos ahora la dispercion de los individuos por emision de CO2 y consumo
-
-```{r descriptives_countries}
-food_consumption %>%
-  group_by(country) %>%
-  summarise(
-    consumption = sum(consumption),
-    co2_emmission = sum(co2_emmission),
-    .groups = 'drop'
-  ) %>%
-  ggplot(aes(x = consumption, y = co2_emmission, label = country)) +
-  geom_label(size = 2.8)
-```
-
-Se observa que existe una aproximada relacion lineal entre la cantidad total de alimento producido y la cantidad de emision de CO2. Mientras mayor es la produccion mas es la emision de CO2. Tambien se puede notar que los paises con mayor consumo son en su mayoria paises desarrollados, mientras que su contraparte son en su mayoria paises pertenecientes al continente Africano.
-
-## Analisis Factorial
-
-Para aplicar el analisis factorial se trabajara solo con la variable **`consumption`**. Se formara un set de datos donde los individuos seran los paises y las variables a asociar seran los tipos de alimentos. Comenzemos inspeccionando la correlacion entre las variables
-
-```{r af_pivot}
+```{r outliers}
+# Se pivotean los datos para tener 130 filas (países) y 11 variables (Tipo de alimento)
 country_consumption <- food_consumption %>%
-  select(-co2_emmission, -source) %>% # Excluimos la variable de emision de CO2
-  pivot_wider(names_from = food_category, values_from = consumption) # Pivoteamos los datos
+  select(-co2_emmission) %>% # Se excluye la variable de emisión de CO2
+  pivot_wider(names_from = food_category, values_from = consumption) 
 
-# Matriz de Correlacion
-consumption_cor <- country_consumption %>%
+country_variables <- country_consumption %>%
+  select(-country)
+
+D2 <- mahalanobis(
+  country_variables,
+  center = colMeans(country_variables),
+  cov = cov(country_variables),
+  inverted = FALSE
+)
+
+outliers <- which(D2 > qchisq(.95, df = ncol(country_variables)))
+
+country_outliers <- country_consumption[outliers,]
+
+country_consumption <- country_consumption[-outliers,]
+
+# Países excluidos
+country_outliers$country
+```
+
+## Análisis de Clusters
+
+Se comienza inspeccionando la correlación entre las variables
+
+```{r correlacion}
+# Matriz de Correlación
+country_consumption %>%
   select(-country) %>%
-  cor()
-
-consumption_cor %>% 
+  cor() %>% 
   corrplot::corrplot(
-    type = 'lower', diag = F, order = 'hclust', tl.srt = 20, tl.col = 'black',
+    type = 'lower', diag = F, order = 'hclust', tl.srt = 10, tl.col = 'black', tl.cex = .7,
     col = colorRampPalette(c("#04a494", "#ffffff", "#e9832d"))(20)
     )
 
 ```
 
-Se puede observar que existe una correlacion positiva entre los tipos de alimentos Cerdo, Leche y Huevo. Mientras que el tipo de alimento Arroz tiene en su mayoria, correlaciones negativas.
+Se puede observar que existe una correlación positiva entre los tipos de alimentos Cerdo, Leche y Huevo. Mientras que en el tipo de alimento Arroz predominan las correlaciones negativas.
 
-Pocedemos ahora a verificar el test de Barlett y KMO
-
-```{r af_tests}
-consumption_cor %>% psych::cortest.bartlett(n = nrow(country_consumption))
-country_consumption %>% select(-country) %>% KMO()
-```
-
-Se puede observar que el p-valor para el test de Barlett tiende a 0, por lo que podemos rechazar la hipotesis nula y afirmar que existe correlacion entre las variables. Igualmente, el coeficiente KMO es mayor a .7, lo que indica que es factible efectuar el analisis factorial en el set de datos, con las correlaciones existentes entre las variables.
-
-Vamos ahora a verificar el numero de factores a incluir en el analisis factorial, que vendra dado por el numero de autovalores mayores a 1 arrojados por la matriz de autovalores y autovectores
-
-```{r af_svd}
-svd(consumption_cor)$d
-
-fit_pa <- principal(
-  consumption_cor, nfactors = 3, rotate = 'varimax', n.obs = nrow(country_consumption)
-  )
-
-fit_pa
-```
-
-
-Podemos observar que excepto para Poultry y Beef, la comunalidad es mayor al 50% para el resto de las variables, lo que significa que los factores comunes contienen mas de la mitad de la varianza en cada una de las variables. Los tres factores retenidos representan 60% de la varianza para los factores comunes y 40% para factores especificos. Por su lado, la componente 1 tiene una representacion del 50% mientras que las otras 26% y 23%. Veamos ahora la agrupacion arrojada por en analisis factorial.
-
-```{r af_coord}
-fit_pa$loadings[1:11,] %>% 
-  as.data.frame() %>% 
-  rownames_to_column('food_type') %>% 
-  ggplot(aes(x = RC1, y = RC2, label = food_type, fill = RC3)) +
-  geom_hline(yintercept = 0, color = 'gray') +
-  geom_vline(xintercept = 0, color = 'gray') +
-  geom_label(color = 'white')
-
-```
-
-Segun las agrupaciones observadas, podemos decir que los paises que consumen productos derivados de la vaca tambien consumen mucho trigo y carne de aves. De igual manera ocurre con los paises que consumen pescado y productos derivados de las nueces, de hecho estos dos productos son los unicos que mantienen una relacion cercana en las tres componentes. Por otro lado vemos que existe una relacion cercana entre la carne de Cerdo y Huevo
-
-## Analisis de Clusters
-
-El analisis de cluster se realizara sobre la variable **`consumption`** y lo que se busca es agrupar los paises de acuerdo al tipo de consumo distribuido en los 11 alimentos. Para esto creamos la matriz de distancias con el metodo Euclidiano. Tambien creamos una funcion que facilita la creacion de los clusters
+El análisis de cluster se realiza sobre la variable **`consumption`** y busca agrupar los países de acuerdo al tipo de consumo distribuido en los 11 alimentos. Para esto se crea la matriz de distancias con el método **Euclidiano**. También se define una función que facilita la formación de los clusters.
 
 ```{r cluster_init}
 consumption_distance <- country_consumption %>%
   column_to_rownames('country') %>%
-  scale() %>%
+  scale() %>% # Normalizamos
   dist(method = "euclidean")
 
 cut_hc <- function(.hc, .k = 3, column_id = 'country'){
@@ -228,65 +188,222 @@ cut_hc <- function(.hc, .k = 3, column_id = 'country'){
 }
 ```
 
-Para la eleccion del metodo de agrupamiento primero observamos la distribucion por cluster para cada uno de los metodos. La eleccion del numero de cluster se realizo de manera discrecional. 
-
-```{r cluster_preview}
-list(
-  list(
-    single = 'single', complete = 'complete', centroid = 'centroid', ward = 'ward.D2'
-  ),
-  list(consumption_distance)
-) %>% 
-  pmap_df(.id = 'method', function(.method, .df){
-     .df %>% 
-      hclust(method = .method) %>% 
-      cut_hc(.k = 3) %>% 
-      count(cluster)
-  }) %>% 
-  pivot_wider(names_from = method, values_from = n) %>% 
-  gt::gt() %>% 
-  gt::tab_header(title = 'Cantidad de paises en cada cluster por Metodo', subtitle = '-')
-```
-
-Podemos ver que el unico metodo que logra formar clusters equilibrados es el metodo de Ward, los demas clusters asignan practicamente la totalidad de los paises al primer cluster. El metodo de Ward consiste en la minimizacion de la varianza dentro de los clusters.
+Luego de varias pruebas se determina que el método de *ward* es el que agrupa a los países de manera más homogénea, igualmente se establece que el número de cluster óptimo es 3.
 
 ```{r cluster_ward}
-hc <- consumption_distance %>% 
-  hclust(method = "ward.D2")
-clusters <- cut_hc(hc, .k = 3)
+clusters <- consumption_distance %>% 
+  hclust(method = "ward.D2") %>% 
+  cut_hc(.k = 3)
 ```
 
-No se grafica el dendograma ya que la cantidad de invididuos es muy elevada y seria dificil extraer alguna conclusion. Veamos la dispersion por consumo y emision de CO2 con las agrupaciones
+<!-- Se verifica la dispersión por consumo y emisión de CO2 de acuerdo a los grupos formados. -->
 
-```{r cluster_scatter}
+<!-- ```{r cluster_scatter} -->
+<!-- food_consumption %>%  -->
+<!--   group_by(country) %>%  -->
+<!--   summarise( -->
+<!--     consumption = sum(consumption), -->
+<!--     co2_emmission = sum(co2_emmission), -->
+<!--     .groups = 'drop' -->
+<!--   ) %>%  -->
+<!--   left_join(clusters, by = 'country') %>%  -->
+<!--   na.omit() %>%  -->
+<!--   ggplot(aes(x = consumption, y = co2_emmission, fill = cluster, label = country)) + -->
+<!--   geom_point(aes(color = cluster), size = 4, alpha = .5) + -->
+<!--   labs(title = 'Consumo vs Huella de Carbono') -->
+<!-- ``` -->
+
+<!-- Se puede apreciar que los clusters formados logran estratificar (medianamente) los países en alta, media y baja emisión de CO2.  -->
+
+Se puede ver el comportamiento de los clusters según el origen del alimento.
+
+```{r cluster_scatter_source}
 food_consumption %>% 
-  group_by(country) %>% 
-  summarise(
-    consumption = sum(consumption),
-    co2_emmission = sum(co2_emmission),
-    .groups = 'drop'
+  mutate(
+    source = if_else(
+      food_category %in% c('Wheat', 'Rice', 'Nuts', 'Soybeans'), 'non-animal', 'animal'
+      )
   ) %>% 
-  left_join(clusters, by = 'country') %>% 
-  ggplot(aes(x = consumption, y = co2_emmission, fill = cluster, label = country)) +
-  geom_label(color = 'white', size = 2.8) +
-  scale_fill_manual(values = c("#e9832d", "#04a494", "#4a4a4a"))
-```
-
-Podemos ver que los clusters formados logran estratificar los paises en alta, media y baja emision de CO2. Tambien podemos ver el comportamiento de los clusters en el consumo por tipo de origen de los alimentos
-
-```{r}
-food_consumption %>% 
   group_by(country, source) %>% 
-  summarise(
-    co2_emmission = sum(co2_emmission),
+    summarise(
+    consumption = sum(consumption),
     .groups = 'drop'
   ) %>% 
-  pivot_wider(names_from = source, values_from = co2_emmission) %>% 
+  pivot_wider(names_from = source, values_from = consumption) %>% 
   left_join(clusters, by = 'country') %>% 
+  na.omit() %>% 
   ggplot(aes(x = animal, y = `non-animal`, fill = cluster, label = country)) +
-  geom_label(color = 'white', size = 2.8) +
-  scale_fill_manual(values = c("#e9832d", "#04a494", "#4a4a4a"))
+  geom_point(aes(color = cluster), size = 4, alpha = .5) +
+  labs(title = 'Consumo según origen del Alimento')
 ```
 
-Podemos observar que el cluster 1 esta formado por los paises que tienen alto consumo de alimentos de origen animal y bajo consumo de alimentos de origen no animal. El grupo 2 esta conformado por paises que tienen consumo equilibrado para ambos tipos de origen de alimento. Finalmente el grupo 3 estaria conformado por paises con bajo consumo de alimentos de origen animal
+Se observa que los grupos responden especialmente al consumo de alimentos de origen animal. El grupo 1 con alto consumo, y el grupo 2 y 3 con consumo moderado y bajo respectivamente.
 
+Se grafica un mapa para identificar en que grupo se encuentra cada país.
+
+```{r plotmap}
+aux_country <- tibble(
+  aux_name = c(
+    'United States of America', 'Republic of Serbia', 'The Bahamas', 'Taiwan',
+    'United Republic of Tanzania', 'Republic of Congo',
+    'Democratic Republic of the Congo'
+  ),
+  country = c(
+    'USA', 'Serbia', 'Bahamas', 'Taiwan. ROC', 'Tanzania', 'Congo', 'Congo'
+  )
+)
+
+hdata <- clusters %>% 
+  left_join(aux_country, by = 'country') %>% 
+  transmute(
+    name = if_else(is.na(aux_name), country, aux_name),
+    grupo = as.numeric(cluster)
+  ) 
+
+data_class <-list(
+  list(name = '1', from = 1, to = 2, color = '#e9832d'),
+  list(name = '2', from = 2, to = 3, color = '#04a494'),
+  list(name = '3', from = 3, to = 4, color = '#4a4a4a')
+)
+
+hcmap(
+  "custom/world",
+  data = hdata,
+  joinBy = 'name',
+  value = 'grupo'
+) %>% 
+  hc_colorAxis(dataClassColor = "category", dataClasses = data_class)
+
+```
+
+El cluster 1 esta conformado por países desarrollados (USA, Canadá, Australia, y países de Europa). El cluster 2 esta conformado por países de Latinoamérica, Medio Oriente y algunos países de África. Finalmente, el cluster 3 estaría conformado por países de Asia, África y Oceanía. Salvo algunas excepciones los países vecinos pertenecen al mismo grupo, lo cual tiene sentido ya que las dietas alimenticias se asemejan por la condición geográfica.
+
+## ANOVA
+
+El siguiente modelo que se aplicará es el análisis de la varianza. La idea es determinar si existe una diferencia significativa entre las medias de los grupos formados en el análisis de clusters. **Para este análisis no se utilizan las 11 variables, puesto que se agrupan los alimentos según su origen (`animal`/`no animal`).** Cabe destacar, que no se aplica un análisis multivariado (MANOVA) ya que las variables no cumplen con el test de esfericidad, las mismas no están correlacionadas tal como se observa en la siguiente salida.
+
+```{r anova_cor}
+# Se agrupan las variables y se juntan los paises con los clusters
+country_cluster <- country_consumption %>% 
+  left_join(clusters, by = 'country') %>% 
+  transmute(
+    cluster,
+    animal_consumption = Beef+Lamb+Fish+Eggs+Milk+Pork+Poultry,
+    non_animal_consumption = Wheat+Rice+Soybeans+Nuts
+  )
+
+# Correlacion entre consumo animal vs consumo no animal
+country_cluster %>%
+  select(animal_consumption, non_animal_consumption) %>% 
+  cor()
+
+```
+
+Se realiza un ANOVA para cada variable dependiente, primero se verifican los supuestos de normalidad y homogeneidad de la varianza.
+
+```{r lavene}
+source_formula <- list(
+  animal_consumption = 'animal_consumption~cluster',
+  non_animal_consumption = 'non_animal_consumption~cluster'
+)
+
+# Levene test
+source_formula %>% 
+  map_df(
+    .id = 'variable',
+    ~car::leveneTest(as.formula(.x), center = mean, data = country_cluster)['group',] %>% 
+      flatten_df()
+  ) %>% 
+  gt() %>% 
+  tab_header(title = 'Test de Lavene para Homogeneidad de la Varianza') %>% 
+  fmt_number(where(is.numeric), decimals = 3)
+
+# Shapiro-Wilk test
+list(
+'animal_consumption' = 'animal_consumption',
+'non_animal_consumption' = 'non_animal_consumption'
+) %>% 
+  map_df(~country_cluster %>% pull(.x) %>% shapiro.test() %>% pluck('p.value')) %>% 
+  gt() %>% 
+  tab_header(title = 'Test de Normalidad Shapiro-Wilk', subtitle = 'p-valor') %>% 
+  fmt_number(where(is.numeric), decimals = 3)
+
+```
+
+El test de Lavene es rechazado en ambos casos, lo que quiere decir que para ninguna de las dos variables se cumple el supuesto de homogeneidad de la varianza. Se debe realizar el ANOVA a través del test de *Welch* o el test de *Brown-Forsythe*. Ahora bien, para el caso de la variable `animal_consumption` se rechaza la hipótesis nula del test de Shapiro-Wilk, es decir, se viola el supuesto de normalidad, por lo que se debe usar para esta variable el test no paramétrico de *Kruskal-Wallis*.
+
+Se le aplican los tres test antes mencionado a ambas variables y se visualiza en una tabla resumen.
+
+```{r anova}
+# ANOVA tests
+source_formula %>% 
+  map_df(
+    .id = 'variable',
+    function(.var){
+      list(onewaytests::welch.test, onewaytests::bf.test, onewaytests::kw.test) %>% 
+      map_df(
+        ~.x(
+          as.formula(.var), data = country_cluster, verbose = F
+          )[c("method", 'statistic', 'p.value')] %>%
+          flatten_df()
+      )
+    }
+  ) %>%
+  gt() %>% 
+  tab_header(title = 'Tests de ANOVA') %>% 
+  fmt_number(where(is.numeric), decimals = 3)
+```
+
+Para el caso de la variable de consumo de alimentos de origen *animal* los tres test *son rechazado*. Exactamente lo opuesto ocurre con la variable de consumo de alimentos de origen *no animal*, donde los tres test *no son rechazados*. Podemos concluir que existe una diferencia de medias en los grupos para la variable que representa el consumo de alimentos de origen animal. Es decir, los grupos se diferencian por cuanto alimento de origen animal consumen, mientras que el consumo de alimento de origen no animal no es tan significativo. Esto confirma la interpretación del gráfico de dispersión según origen del alimento que se mostró en el análisis de cluster.
+
+Se procede ahora a realizar la comparación a posteriori para la variable `animal_consumption` en cada par de grupos y verificar en cuales existen diferencias significativas.
+
+```{r anova_posteriori}
+pairwise.t.test(
+  country_cluster$animal_consumption, country_cluster$cluster, p.adjust = "bonferroni"
+)
+```
+
+En los tres pares de grupos existen diferencias significativas, es decir, la media de la variable es significativamente diferente entre todos los grupos.
+
+## Conclusiones
+
+- Los alimentos de origen animal son los de mayor importancia a la hora de definir los grupos.
+- La mayoría de países desarrollados (cluster 1) tienen un alto consumo de alimentos de origen animal en comparación a países menos desarrollados (cluster 2-3). Posiblemente debido a que estos últimos tienen una mayor restricción a la industrialización de la producción de alimentos.
+- La condición geográfica influye en la conformación de los grupos debido a la similitud de las  dietas alimenticias. Esto también podría ser un factor influyente para explicar la diferencia de consumo de alimentos de origen animal entre los clusters.
+- Sería interesante comprobar la relación entre el consumo y la emisión de CO2. Se podría determinar si dentro de un mismo grupo existen países con una diferencia significativa en la huella de carbono. Identificando cuales países tienen una producción de alimentos más respetuosa con el medio ambientes y cuales no.
+
+## Extra: Análisis Discriminante
+
+Se podría implementar un modelo de análisis discriminante para determinar los grupos a los cuales pertenecen los 10 países que se excluyeron del estudio por considerarlos valores atípicos. A continuación se implementa el código y se muestran las salidas. No se extiende en la explicación ni interpretación de los resultados ya que se excedería mucho más en el límite de páginas establecido para el presente trabajo.
+
+```{r discriminante}
+
+lda_model <- country_consumption %>%
+  left_join(clusters, by = 'country') %>%
+  select(-country) %>%
+  MASS::lda(data = ., cluster~.)
+
+# plot(lda_model)
+
+# MAtriz de Confusion
+country_consumption %>%
+  left_join(clusters, by = 'country') %>%
+  mutate(.predict = predict(lda_model)$class) %>%
+  yardstick::conf_mat(truth = cluster, estimate = .predict)
+
+# Resultados
+country_outliers %>% 
+  select(country) %>% 
+  bind_cols(
+   cluster = predict(lda_model, newdata = country_outliers)$class
+  ) %>% 
+  gt() %>% 
+  tab_header(title = 'Cluster designado para países con valores atípicos')
+```
+
+## Bibliografía
+
+- Gareth J., Witten D., Hastie T., y Tibshirani R. (2014) *An Introduction to Statistical Learning: With Application in R*. Springer
+
+- nu3 Nutrition Experts. *Food Carbon Footprint Index 2018* [en línea]. nu3. 28 November 2019. Disponible en: [https://www.nu3.de/blogs/nutrition/food-carbon-footprint-index-2018] 

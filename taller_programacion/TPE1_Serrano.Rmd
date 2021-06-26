@@ -1,0 +1,269 @@
+---
+title: "**ESPECIALIZACIÓN EN  MÉTODOS CUANTITATIVOS PARA LA GESTIÓN Y ANÁLISIS DE DATOS EN ORGANIZACIONES**"
+subtitle: "**E72. 07 TALLER DE PROGRAMACIÓN**"
+date: "**PIRMERA EVALUACIÓN**"
+output: 
+  pdf_document:
+    template: ../md_formats/taller_prog_template.tex
+    # keep_tex: true
+    highlight: default
+    includes:
+      in_header: ../md_formats/taller_prog.tex
+urlcolor: blue
+---
+
+\
+
+\vskip 3.5em
+
+## Docentes: Garcia Fronti Javier Ignacio {.unlisted .unnumbered}
+## Estudiante: Rodrigo Serrano {.unlisted .unnumbered}
+
+\newpage
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = F, message = F, fig.align = 'center', fig.showtext = T)
+thematic::thematic_rmd(
+  bg = "#ffffff", fg = '#4a4a4a', accent = '#e9832d', font = 'Roboto'
+  )
+```
+
+El objetivo de este trabajo es analizar datos de un estudio realizado por nu3, donde expone el consumo por tipo de alimento en 130 países y su relación con la huella de carbono. Los datos estan expresado en kg por persona al año. Tanto para la emisión de CO2 (co2_emmission) como para la producción de alimento destinada a consumo (consumption). Buscaremos agrupar los países segun su patrón de consumo y como afecta su huella de carbono.
+
+Este documento fue realizado con Rmarkdown, el código del archivo .Rmd y el anexo .R puede ser consultado en el repositorio https://github.com/rodserr/uba-classroom/blob/main/taller_programacion
+
+### Librerías
+
+Las librerias a utilizar en el siguiente trabajo son:
+
+#### tidyverse
+
+[`tidyverse`](http://tidyverse.tidyverse.org/) es un paquete que permite la descarga y carga en el área de trabajo de otras Librerías destinadas a la manipulación de datos. Es muy útil ya que permite desarrollar código bajo el framework tidy, método establecido por el desarrollador del paquete: Hadley Wickham, así como los desarrolladores de Rstudio. Las Librerías que carga son:
+
+- *dplyr*: Manipulación de datos (agrupar, crear y modificar columnas, filtrar, seleccionar, etc.)  
+- *tidyr*: Manipular la estructuras de los datos para convertirlos a una estructura `"tidy"`
+- *readr*: Lectura de datos tabulados
+- *stringr*: Operaciones sobre strings
+- *purrr*: Permite desarrollar un framework de trabajo orientado a la programacion funcional
+- *ggplot2*: Generación de gráficos
+- *forcats*: Permite realizar operaciones sobre objetos de tipo factor
+- *tibble*: Genera objetos tipo 'tibble', parecidos a los dataframes pero con algunas mejoras
+
+```{r}
+library(tidyverse) # Manipulacion de datos
+```
+
+
+#### tidytuesdayR
+
+tidytuesdayR es un paquete que facilita el acceso a datasets para la ejemplificación de visualizaciones y modelos en R. Todos los martes se carga un nuevo dataset publico
+
+```{r}
+library(tidytuesdayR) # Extraccion de datos
+```
+
+#### gt
+
+gt es un paquete desarrollado por el equipo de Rstudio que crea tablas generadas. 
+
+```{r gt}
+library(gt) # Creacion de tablas
+```
+
+#### highcharter
+
+highcharter es un paquete que genera graficos utilizando la librería de javascript [Highcharts](https://www.highcharts.com/) como backend
+
+```{r high}
+library(highcharter) # Creacion de tablas
+```
+
+### Datos
+
+Los datos son obtenidos con el paquete **`tidytuesday`**. En este caso utilizaremos el dataset de la semana 8 del año 2020. Este dataset es un estudio originalmente realizado por [nu3](https://www.nu3.de/blogs/nutrition/food-carbon-footprint-index-2018) y expone dos variables registradas en 130 países:
+
+- **consumption:** cantidad (en kg) de alimento anual producido para consumo por persona
+- **co2_emmission:** emision (en kg) anual de CO2 por persona
+
+```{r datos_init, eval = F}
+# Carga de datos
+tuesdata <- tidytuesdayR::tt_load(2020, week = 8)
+
+food_consumption <- tuesdata$food_consumption %>% 
+  mutate(food_category = word(food_category, 1)) # Limpiamos los nombres de los tipos de alimentos
+```
+
+```{r datos_csv, echo = F}
+# La funcion tidytuesdayR::tt_load descarga los datos cada vez que es ejecutada.
+# Para compilar el .Rmd mas rapidamente y no tener que descargar el dataset con cada compilacion, el mismo se guarda en .csv
+# Notar que este chunk no se muestra en el pdf para evitar confusion.
+food_consumption <- read_csv('data/food_consumption.csv')
+```
+
+Podemos ver por ejemplo los datos de Argentina:
+
+```{r descriptive_argentina}
+food_consumption %>%
+  filter(country == 'Argentina') %>%
+  gt::gt() %>% 
+  gt::tab_header(title = 'Argentina', subtitle = '-')
+```
+
+### Gráfico
+
+A continuación se presenta un grafico de cajas generado con `ggplot2`. Los boxplots son agrupados por tipo de alimento y muestran la distribución tanto de la cantidad de consumo como la emisión de CO2 de los países.
+
+```{r descriptive_boxplot}
+food_consumption %>%
+  pivot_longer(c(consumption, co2_emmission)) %>%
+  ggplot(aes(x = value, y = food_category)) +
+  geom_boxplot() +
+  facet_wrap(~name, scales = 'free_x', ncol = 2) +
+  labs(x = '', y = '', title = 'Distribucion de las variables')
+
+```
+
+### Escritura del gráfico
+
+El siguiente comando permite guardar el último gráfico desplegado en Rstudio con las dimensiones actuales de la sección `Plots`. Aunque también es posible ajustar el tamaño de la imagen a generar con los argumentos *width* y *height*
+
+```{r write_plot}
+ggplot2::ggsave('boxplot_tipo_alimento.jpg')
+```
+
+### Función de la familia apply
+
+A continuación calculamos la media de ambas variables (*consumption* y *co2_emmission*) utilizando la función sapply. A manera de comparación se realiza el mismo calculo con la función `purrr::map`. Esta familia de funciones se utiliza para iterar sobre listas o vectores y tiene varias caracteristicas que permiten ejecutar actividades mas complejas como se demuestra en la siguiente seccion *Extra: Iterar multiples argumentos con `purrr::pmap`*
+
+```{r}
+food_consumption %>% 
+  select(where(is.numeric)) %>% # Seleccionamos solo variables numericas
+  sapply(mean)
+
+food_consumption %>% 
+  select(where(is.numeric)) %>% # Seleccionamos solo variables numericas
+  purrr::map(mean)
+
+```
+
+### Extra: Iterar multiples argumentos con `purrr::pmap`
+
+En este apartado se ejemplifica la funcion `purrr::pmap`. La misma es de la familia `purrr::map` (similar a apply), con la diferencia de que permite iterar sobre multiples argumentos, permitiendo que la función que se va a ejecutar varíe en mas de un argumento.
+
+En el ejemplo se busca obtener la cantidad de individuos que contiene cada uno de los 3 clusters formados, para cada método empleado. El dataframe *consumption_distance* contiene las distancias euclidianas. La función *cut_hc* nos permite obtener un dataframe con los `.k` grupos de un objeto hclust
+
+* El comando pmap ejecuta la función para cada elemento de la lista `lista_metodos` y reutiliza en cada ejecución el unico elemento de la lista `lista_distancia`, la cual contiene el dataframe `consumption_distance`
+
+* Notar que se utiliza la funcion `pmap_df`: la extencion **\_df** permite convertir la lista resultante en un dataframe. Sin el **\_df**, `pmap` arroja una lista de la misma longitud que la lista de mayor elementos utilizada como input, en este caso **lista_metodos**
+
+```{r pmap_example}
+# Distancia euclidieana del consumption por tipo de alimento
+consumption_distance <- food_consumption %>% 
+  select(-co2_emmission) %>%
+  pivot_wider(names_from = food_category, values_from = consumption) %>%
+  column_to_rownames('country') %>%
+  scale() %>%
+  dist(method = "euclidean")
+
+# Funcion para obtener los cluster a partir de un objeto hclust
+cut_hc <- function(.hc, .k = 3, .column_name = 'country'){
+  .hc %>% 
+    cutree(k = .k) %>%
+    as.data.frame() %>%
+    rownames_to_column(var = .column_name) %>% 
+    rename(cluster = '.') %>% 
+    mutate(cluster = as_factor(cluster))
+}
+
+# Primera lista que va a determinar el metodo del cluster
+lista_metodos <- list(
+  single = 'single', complete = 'complete', centroid = 'centroid', ward = 'ward.D2'
+)
+
+# lista que contiene el dataframe de distancias 
+lista_distancia <- list(consumption_distance)
+
+# la funcion pmap solo recibe listas, por eso hay que guardar las listas a iterar 
+# dentro de una lista "contenedora"
+n_cluster <- list(
+  lista_metodos,
+  lista_distancia
+) %>% 
+  pmap_df(.id = 'method', ~.y %>% hclust(method = .x) %>% cut_hc() %>% count(cluster)) 
+
+n_cluster
+
+# Si quisieramos mostrar los resultados mas ordenados: pivoteamos y desplegamos tabla
+n_cluster %>% 
+  pivot_wider(names_from = method, values_from = n) %>% 
+  gt::gt() %>% 
+  gt::tab_header(title = 'Cantidad de paises en cada cluster por Metodo', subtitle = '-')
+
+
+```
+
+Otra de las ventajas da la familia `purrr::map` es que se puede adaptar con paquetes que permitan la ejecución de código en paralelo como **future**. Por ejemplo, el paquete **furrr** nos permite realizar lo mismo que acabamos de hacer, pero utilizando varios cores de la máquina, lo que se traduce en menos tiempo de ejecución.
+
+### Escritura de tabla
+
+Para guardar los resultados finales en un csv podemos utilizar la función `readr::write_csv`
+
+```{r}
+# Agrupacion con el metodo optimo
+clusters <- consumption_distance %>% 
+  hclust(method = "ward.D2") %>% 
+  cut_hc()
+```
+
+
+```{r eval=F}
+# Escribimos los datos resultantes en un csv
+clusters %>% write_csv('consumption_cluster.csv')
+```
+
+
+### Extra: Gráfico de mapa con `higcharter`
+
+Podemos visualizar los clusters en una mapa. Para esto utilizamos la función `highcharter::hcmap`. Primero debemos corregir los nombres de algunos países que no concuerdan entre nuestra data y las tablas de highchart. Configuramos la apariencia de los grupos (colores y títulos) y ejecutamos `hcmap` indicando la variable a graficar y la columna para juntar nuestros datos con los de highchart.
+
+```{r}
+# Modificacion de nombres de algunos paises para el join con la tabla de highcharter
+aux_country <- tibble(
+  aux_name = c(
+    'United States of America', 'Republic of Serbia', 'The Bahamas', 'Taiwan',
+    'United Republic of Tanzania', 'Republic of Congo',
+    'Democratic Republic of the Congo'
+  ),
+  country = c(
+    'USA', 'Serbia', 'Bahamas', 'Taiwan. ROC', 'Tanzania', 'Congo', 'Congo'
+  )
+)
+
+# Dataframe de clusters con nombres modificados
+country_cluster_clean <- clusters %>% 
+  left_join(aux_country, by = 'country') %>% 
+  transmute(
+    name = if_else(is.na(aux_name), country, aux_name),
+    grupo = as.numeric(cluster)
+  ) 
+
+# Configuracion de colores y nombres de los grupos
+data_class <-list(
+  list(name = '1', from = 1, to = 2, color = '#e9832d'),
+  list(name = '2', from = 2, to = 3, color = '#04a494'),
+  list(name = '3', from = 3, to = 4, color = '#4a4a4a')
+)
+
+# Grafico de Mapa Mundial
+# Nota: Para renderizar un imagen estatica a partir del grafico dinamico, knitr utiliza el
+# paquete webshot2
+hcmap(
+  "custom/world",
+  data = country_cluster_clean,
+  joinBy = 'name', 
+  value = 'grupo'
+) %>% 
+  hc_colorAxis(dataClassColor = "category", dataClasses = data_class)
+
+```
+

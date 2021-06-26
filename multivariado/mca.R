@@ -15,19 +15,21 @@ telco <- telco_raw %>%
   transmute(
     Contract, InternetService, PhoneService, 
     MultipleLines = if_else(MultipleLines == 'No phone service', 'No', MultipleLines), 
-    PaymentMethod = if_else(str_detect(PaymentMethod, 'automatic'), 'auto', 'no_auto'),
-    Companion = if_else(Partner == 'No' & Dependents == 'No', 'No', 'Yes'),
+    # PaymentMethod = if_else(str_detect(PaymentMethod, 'automatic'), 'auto', 'no_auto'),
+    # Companion = if_else(Partner == 'No' & Dependents == 'No', 'No', 'Yes'),
     Streaming = if_else(StreamingTV == 'No' & StreamingMovies == 'No', 'No', 'Yes'),
     SeniorCitizen = if_else(SeniorCitizen == 0, 'No', 'Yes'),
+    # OnlineSecurity = if_else(OnlineSecurity == 'No internet service', 'No', OnlineSecurity),
+    # TechSupport = if_else(TechSupport == 'No internet service', 'No', TechSupport),
     tenure = case_when(
-      tenure < 24 ~ 'new_customer',
-      tenure < 12*4 ~ 'regular_customer',
-      T ~ 'old_customer'
+      tenure < 12*2 ~ 'new_custm',
+      tenure < 12*4 ~ 'regular_custm',
+      T ~ 'old_custm'
     ),
     MonthlyCharges = case_when(
-      MonthlyCharges < 35 ~ 'low_fee',
-      MonthlyCharges < 80 ~ 'standard_fee',
-      T ~ 'high_fee'
+      MonthlyCharges < 35 ~ 'low_charg',
+      MonthlyCharges < 80 ~ 'standard_charg',
+      T ~ 'high_charg'
     )
   ) %>% 
   mutate(across(everything(), as_factor))
@@ -40,7 +42,7 @@ telco %>%
   geom_col() +
   facet_wrap(~name, scales = 'free')
 
-mca <- MCA(telco, ncp = 5, graph = F)
+mca <- MCA(telco, ncp = 8, graph = F)
 
 get_eigenvalue(mca)
 fviz_screeplot(mca, addlabels = TRUE)
@@ -50,25 +52,35 @@ fviz_mca_var(mca, axes = c(1,2), choice = "mca.cor", repel = TRUE)
 fviz_mca_var(mca, axes = c(1,2), choice = "var.cat", repel = TRUE)
 fviz_mca_var(mca, col.var = "cos2", gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"), repel = TRUE)
 fviz_cos2(mca, choice = "var", axes = 1:5)
-fviz_contrib(mca, choice = "var", axes = 1, top = 15)
+fviz_contrib(mca, choice = "var", axes = 1:5, top = 15)
 
 get_mca_ind(mca)$coord %>% as_tibble() %>% 
-  bind_cols(telco_raw %>% na.omit() %>% select(Churn)) %>% 
-  ggplot(aes(x = `Dim 1`, y = `Dim 3`, color = Churn)) +
+  bind_cols(telco_raw %>% na.omit() %>% dplyr::select(Churn)) %>% 
+  ggplot(aes(x = `Dim 1`, y = `Dim 2`, color = Churn)) +
   geom_point()
 
-# Cluster
-hc_telco <- get_mca_ind(mca)$coord %>% 
-  dist(method = "euclidean") %>% 
-  hclust(method = "ward.D2")
+# Discriminant
+telco_numeric <- get_mca_ind(mca)$coord %>%
+  as_tibble() %>% 
+  bind_cols(telco_raw %>% na.omit() %>% dplyr::select(Churn)) %>% 
+  janitor::clean_names() %>% 
+  mutate(churn = as_factor(churn))
 
-clusters_telco <- cutree(hc_telco, k = 2) %>%
-  as.data.frame() %>%
-  rownames_to_column('id') %>% 
-  rename(cluster = '.') %>% 
-  mutate(cluster = as_factor(cluster))
+telco_numeric <- telco %>% 
+  bind_cols(telco_raw %>% na.omit() %>% dplyr::select(Churn)) %>% 
+  janitor::clean_names() %>% 
+  mutate(churn = as_factor(churn))
 
-telco_raw %>% 
-  na.omit() %>% 
-  bind_cols(clusters_telco) %>% 
-  count(Churn, cluster)
+telco_numeric <- telco_raw %>% 
+  mutate(churn = as_factor(Churn)) %>% 
+  dplyr::select(-customerID, -Churn, -TotalCharges)
+
+library(MASS)
+
+lda_model <- lda(data = telco_numeric, churn ~ .)
+plot(lda_model)
+
+telco_numeric %>% 
+  mutate(.predict = predict(lda_model)$class) %>% 
+  yardstick::conf_mat(truth = churn, estimate = .predict)
+

@@ -46,6 +46,6 @@ vignettes/*.pdf
 *.html
 *.jpg
 
+!md_formats/encabezado.jpg
+
 # Hide evaluations
-SERRANO_*.Rmd
-SERRANO_*.pdf

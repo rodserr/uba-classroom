@@ -20,8 +20,57 @@ paises %>%
 
 paises %>% filter(Agricultura > 60)
 
+# outliers
+paises_variables <- paises %>% select(-pais)
+
+D2 <- mahalanobis(
+  paises_variables,
+  center = colMeans(paises_variables),
+  cov = cov(paises_variables),
+  inverted = FALSE
+  )
+
+pval <- pchisq(D2, df = ncol(paises_variables), lower.tail = FALSE)
+
+pval < (0.05 / length(D2))
+
+which(D2 > qchisq(.99, df = ncol(paises_variables)))
+
 paises_clean <- paises %>% 
   filter(Agricultura < 60)
+
+# Eleccion del Metodo
+
+paises_distance <- paises_clean %>%
+  column_to_rownames('pais') %>%
+  scale() %>%
+  dist(method = "euclidean")
+
+cut_hc <- function(.hc, .k = 3, column_id = 'country'){
+  cutree(.hc, k = .k) %>%
+    as.data.frame() %>%
+    rownames_to_column(var = column_id) %>% 
+    rename(cluster = '.') %>% 
+    mutate(cluster = as_factor(cluster))
+}
+
+list(
+  list(
+    single = 'single', complete = 'complete', centroid = 'centroid', ward = 'ward.D2'
+  ),
+  list(paises_distance)
+) %>% 
+  pmap_df(.id = 'method', function(.method, .df){
+    .df %>% 
+      hclust(method = .method) %>% 
+      cut_hc(.k = 2) %>% 
+      count(cluster)
+  }) %>% 
+  pivot_wider(names_from = method, values_from = n) %>% 
+  gt::gt() %>% 
+  gt::tab_header(title = 'Cantidad de paises en cada cluster por Metodo', subtitle = '-')
+
+# Ejecucion cluster
 
 hc <- paises_clean %>% 
   column_to_rownames('pais') %>%

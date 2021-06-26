@@ -1,0 +1,111 @@
+---
+title: "**ESPECIALIZACIÓN EN  MÉTODOS CUANTITATIVOS PARA LA GESTIÓN Y ANÁLISIS DE DATOS EN ORGANIZACIONES**"
+subtitle: "**E72. 05 Técnicas de Investigación Operativa para la Gestión**"
+date: "**Trabajo Final**"
+output: 
+  pdf_document:
+    template: ../md_formats/tecnicas_template.tex
+    # keep_tex: true
+    highlight: default
+    includes:
+      in_header: ../md_formats/tecnicas.tex
+urlcolor: blue
+---
+
+\
+
+## Actividad: Cadenas de Markov {.unlisted .unnumbered}
+
+\vskip 3.5em
+
+## Docente: Bianco Maria Jose {.unlisted .unnumbered}
+## Estudiante: Rodrigo Serrano {.unlisted .unnumbered}
+
+\newpage
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = F, message = F, fig.align = 'center')
+# library(ggplot2)
+# thematic::thematic_rmd(
+#   bg = "#ffffff", fg = '#4a4a4a', accent = '#e9832d', font = 'Roboto'
+#   )
+```
+
+### 1) Construya la matriz de transición mensual y realice el Diagrama de Transición
+
+```{r mk_object}
+library(markovchain)
+library(diagram)
+
+estados <- c("A", "B", "Pagado", "D")
+matriz_tran = matrix(c(.4, .2, .4, 0,
+                       .55, .3, .1, .05,
+                       0, 0, 1, 0,
+                       0, 0, 0, 1), 
+                     byrow=T, ncol=4)
+colnames(matriz_tran) = rownames(matriz_tran) = estados
+
+# Objeto Markov chain
+cuentas_cobrar <- new("markovchain", transitionMatrix = matriz_tran)
+
+# Resumen de Matriz
+summary(cuentas_cobrar)
+```
+
+Observamos que la matriz tiene dos estados Absorventes, que vendrían siendo el estado Pagado y el estado D (Default). Y dos estados Transitorios que serían los estados A (deudores) y B (no deudores)
+
+```{r mk_plot}
+# Grafico de transicion
+plotmat(t(cuentas_cobrar@transitionMatrix), relsize = .9,
+        box.type = 'diamond', shadow.size = 0, txt.col = "darkblue", txt.font = 4,
+        box.lwd = 1.55,box.size = 0.07,box.col = 'light yellow',box.cex = 0.75,
+        arr.col = '#e9832d',arr.width = 0.2, arr.length = 0.25, 
+        arr.type = 'triangle',arr.lwd = 1.2, arr.lcol = 'red',
+        cex.txt = 0.8, curve = 0.05,
+        self.cex = 0.8, 
+        self.shiftx = c(+0.00,-0.10,+0.00,+0.10),
+        self.shifty = c(+0.10,+0.00,+0.10,+0.00),
+        self.arrpos = NULL,
+        main="Diagrama de Transicion: Estatus de Deuda", cex = 1.2)
+
+```
+
+
+### 2) Calcule la probabilidad de que un saldo de deuda clasificado “B” al final de un mes sea finalmente cancelado (en el largo plazo).
+
+```{r mk_absortion}
+(PA <- absorptionProbabilities(cuentas_cobrar))
+
+```
+
+La probabilidad de que un saldo clasificado inicialmente como `B` sea cancelado es de **.903**
+
+### 3) Si Majobi SA tiene actualmente cuentas por cobrar por $ 100.000 clasificados como “A” y $ 50.000 clasificados como “B”, ¿cuánto esperaría cobrar la empresa y cuánto se consideraría irrecuperable?
+
+```{r mk_montos}
+Estado0 = c(100000,50000)
+round(Estado0 %*% PA, 2)
+
+```
+
+En el escenario planteado se esperaría cobrar el 94% de la deuda (\$141.935) y se consideraría irrecuperable el 6% (\$8.064)
+
+### 4) Escenario Recesivo
+
+Para dar solución al planteamiento, definimos una nueva matriz de transición con las modificaciones de las probabilidades, y repetimos el punto anterior con esta nueva matriz
+
+```{r mk_recesivo}
+matriz_tran_recesivo = matrix(c(.3, .4, .3, 0,
+                                .3, .5, .05, .15,
+                                0, 0, 1, 0,
+                                0, 0, 0, 1),
+                              byrow=T, ncol=4)
+colnames(matriz_tran_recesivo) = rownames(matriz_tran_recesivo) = estados
+cuentas_cobrar_recesivo <- new("markovchain", transitionMatrix = matriz_tran_recesivo)
+PA_recesivo <- absorptionProbabilities(cuentas_cobrar_recesivo)
+round(Estado0 %*% PA_recesivo, 2)
+```
+
+En este escenario la deuda pagada se reduce al 67% (\$101.087) y el 33% (\$48.913) sería irrecuperable 
+
+

@@ -1,7 +1,7 @@
 ---
 title: "Métodos Cuantitativos para la Gestión y Análisis de Datos en Organizaciones"
-subtitle: "Ejercicio Practico: Analisis de Cluster"
-author: "Rodrigo Serrano"
+subtitle: "Ejercicio Práctico: Análisis de Clusters"
+# author: "Rodrigo Serrano"
 date: "Mayo de 2021"
 output: 
   pdf_document:
@@ -17,13 +17,71 @@ urlcolor: blue
 ## Métodos de Análisis Multivariado {.unlisted .unnumbered}
 
 ## Docentes: Silvina Del Duca y Silvia Vietri {.unlisted .unnumbered}
+## Estudiantes: {.unlisted .unnumbered}
+
+* Jose Luis Marino 
+* Sasha Murat
+* Denis Trosman 
+* Nicolás Settembrini 
+* Francisco Obregoso
+* Rodrigo Serrano
 
 \newpage
 
+## Ejercicio 1
+
+Comenzaremos explicando los distintos métodos de **análisis de interdependencia**. Naturalmente, estos tienen el objetivo de describir cómo están relacionadas las variables analizadas, y por qué lo están. De acuerdo con esto, algunos métodos buscan agrupar a los distintos individuos en base a su correlación
+
+### Análisis de Componentes Principales (PCA)
+
+Este método puede ser aplicado a la hora de trabajar con variables métricas que están correlacionadas entre sí. Su objetivo fundamental es condensar la información original en un conjunto más pequeño de variables llamadas factores o componentes principales, con una pérdida mínima de información. Para lograr esta reducción de dimensionalidad, el PCA crea combinaciones lineales de las variables originales que son ortogonales entre sí. Es decir, que no están correlacionadas. De estas nuevas componentes se escogerán las que se consideren suficientes para explicar la variabilidad total en la mayor proporción posible.
+
+Ahora bien, para llegar a conclusiones a partir de la aplicación del PCA necesitamos observar las correlaciones que tienen las variables originales con cada componente principal obtenida. De esta manera, puedo interpretar las componentes según la importancia de cada variable original en cada una de estas. 
+
+Un ejemplo común de utilización es el de realizar regresiones en casos donde las variables originales estén correlacionadas. En esta ocasión, la regresión común nos daría resultados con multicolinealidad, lo cual oscurecería la interpretación de los datos. El PCA lograría eliminar este problema sin una pérdida importante de información.
+
+### Análisis Factorial
+
+Como en el caso de Componentes Principales, este método se aplica a variables métricas con interdependencia entre sí buscando la reducción de la dimensionalidad de los datos. El objetivo es identificar factores subyacentes (latentes) que expliquen la correlación o covarianza entre las variables originales. El método detecta estas variables latentes descomponiendo la varianza de cada variable explicada por todos los factores comunes (comunalidad), otorgando una medida de contribución de cada uno de los mismos a la varianza total de la variable.
+
+Para extraer los factores comunes, pueden utilizarse el método de componentes principales, el de ejes principales, u otros como el de máxima verosimilitud o mínimos cuadrados no ponderados o generalizados.
+
+Por otra parte, este método ofrece una representación de los métodos gráficos que permite facilitar la interpretación.
+
+### Análisis de Correspondencias
+
+Este método se aplica a variables relacionadas no métricas (variables categóricas u ordinales). El mismo es una técnica descriptiva para representar frecuencias de aparición de dos o más variables cualitativas en un conjunto de elementos. Se busca representar las variables con sus categorías en un espacio de menor dimensión, de forma que el nuevo espacio preserve las distancias relativas entre los perfiles, cuales miden las frecuencias relativas de cada grupo. 
+
+Como bondad de ajuste, el análisis de correspondencia tiene en cuenta una medida llamada inercia. Esta mide la dispersión de los perfiles en un espacio multidimensional, de manera que mientras mayor porcentaje de inercia represente el plano sobre la inercia total, mejor será la solución obtenida.
+
+Al generar un gráfico de dos ejes coordenados llamado mapa conceptual, el análisis de correspondencia permite observar la proximidad entre los distintos niveles de cada una de las variables intervinientes.
+
+### Análisis de Clusters
+
+Se aplica, como todos los métodos anteriormente desarrollados a variables interdependientes. En este caso, se estudia la relación entre casos y tiene por objeto agrupar elementos en grupos homogéneos en función de las similitudes entre ellos. El clúster contendrá observaciones de forma homogénea a las variables que lo caracterizan, y se perseguirá el objetivo de que sean lo suficientemente diferentes entre sí. Las medidas de similitud entre variables métricas suelen estar basadas en *distancia*, que pueden ser euclídea, euclídeas al cuadrado, de Minkowski, u otras.
+
+La manera de agrupar observaciones se puede realizar desde dos enfoques: el jerárquico y el no jerárquico. El primero puede constar de generar un grupo para cada individuo, e ir fusionándolos en base a la similitud entre sí, o generar un único grupo e ir desagregándolo. El no jerárquico, por otro lado, no forma clusters a partir de un proceso de fusión de grupos de menor tamaño, sino que los establece en un principio, y luego ubica a cada individuo en cada uno de ellos. 
+
+Este análisis permite visualizar e interpretar de forma sencilla y gráfica la relación entre los casos de estudio. Un ejemplo puede ser el de agrupar distintos tipos de clientes de manera que sean lo más distintos entre sí en base a una variable objetivo, para luego poder diseñar distintas campañas u ofertas con distintas características específicas para cada uno de ellos.
+
+Así mismo, hemos estudiado la aplicación de métodos de análisis multivariante que estudian la **dependencia** entre variables. Estos tienen el objetivo de buscar la existencia o ausencia de relaciones entre dos grupos de variables, y poder entender si un conjunto de variables independientes afecta al conjunto de variables dependientes de forma conjunta o individual.
+
+### Análisis Discriminante
+
+Este método se utiliza para variables dependientes no métricas. Su objetivo es explicar la dependencia de distintos individuos a grupos alternativos, a partir de un conjunto de variables originales. Trata de explicar la pertenencia de distintos individuos a grupos o poblaciones alternativas. La clasificación de un individuo en uno u otro grupo se efectuará a partir de valores de un conjunto de variables que describen a estos individuos que se pretenden clasificar.
+
+Cada individuo puede pertenecer a un único grupo, y la pertenencia se introduce en el análisis mediante una variable categórica que toma tantos valores como grupos existentes. Esta será la variable dependiente del análisis. Por otro lado, las variables que se utilicen para realizar estas clasificaciones serán llamadas clasificadoras, cuyas informaciones serán sintetizadas en funciones discriminantes.
+
+El análisis discriminante se utiliza tanto para fines explicativos, para determinar la contribución de cada variable a la clasificación correcta de cada uno de los individuos, como para fines predictivos, intentando determinar al grupo que más probablemente pertenezca un individuo. 
+
+## Ejercicio 2
+
+La base cuenta con datos correspondientes a 24 países europeos, en los que se registraron los porcentajes de empleados en determinados sectores. Estos sectores (variables) son los de agricultura, minearía, industria, energía, construcción, servicios industriales, finanzas, servicios personales y transporte. La matriz X de datos es de orden 24 x 9.
+
+A partir del análisis de Cluster se buscará determinar qué países pueden tener similitudes entre sí, como también que características tienen en común o no.
+
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE, warning = F, message = F, fig.align = 'center', fig.showtext = T)
-library(ggplot2)
-library(tidyverse)
 thematic::thematic_rmd(
   bg = "#ffffff", fg = '#4a4a4a', accent = '#e9832d', font = 'Roboto'
   )
@@ -45,7 +103,6 @@ which(is.na(paises))
 
 ```
 
-
 Veamos la distribucion de cada sector para identificar valores atipicos
 
 ```{r descr_boxplot}
@@ -58,7 +115,7 @@ paises %>%
   labs(x = '', y = '')
 ```
 
-Observamos que existe un pais cuya fuerza laboral se encuentra concentrada en mas del 60% para el sector Agricultura. Veamos de que pais se trata y lo exluimos de la muestra ya que puede afectar la formacion de los clusters
+Observamos que existe un país cuya fuerza laboral se encuentra concentrada en mas del 60% para el sector Agricultura. Veamos de que país se trata y lo excluimos de la muestra ya que puede afectar la formación de los grupos
 
 ```{r anomaly}
 paises %>% filter(Agricultura > 60)
@@ -68,13 +125,47 @@ paises_clean <- paises %>%
 
 ```
 
-Primero aplicamos una agrupacion jerarquica para identificar el numero de cluster optimo
+Primero aplicamos una agrupación jerárquica para identificar el numero de grupos óptimo. Para esto evaluaremos cual método agrupa mejor los datos utilizando solo dos grupos
 
-```{r hc}
-hc <- paises_clean %>% 
+```{r method_justf}
+# Matriz de Distancias Euclidiana
+paises_distance <- paises_clean %>%
   column_to_rownames('pais') %>%
   scale() %>%
-  dist(method = "euclidean") %>% 
+  dist(method = "euclidean")
+
+# Funcion para obtener los cluster de un objeto hclust
+cut_hc <- function(.hc, .k = 3, column_id = 'country'){
+  cutree(.hc, k = .k) %>%
+    as.data.frame() %>%
+    rownames_to_column(var = column_id) %>% 
+    rename(cluster = '.') %>% 
+    mutate(cluster = as_factor(cluster))
+}
+
+# Iterador pmap
+list(
+  list(
+    single = 'single', complete = 'complete', centroid = 'centroid', ward = 'ward.D2'
+  ),
+  list(paises_distance)
+) %>% 
+  pmap_df(.id = 'method', function(.method, .df){
+    .df %>% 
+      hclust(method = .method) %>% 
+      cut_hc(.k = 2) %>% 
+      count(cluster)
+  }) %>% 
+  pivot_wider(names_from = method, values_from = n) %>% 
+  gt::gt() %>% 
+  gt::tab_header(title = 'Cantidad de paises en cada cluster por Método', subtitle = '-')
+
+```
+
+Observamos que el método que agrupa equitativamente los individuos es el método de **ward**
+
+```{r hc}
+hc <- paises_distance %>% 
   hclust(method = 'ward.D2')
 
 plot(hc)
@@ -85,10 +176,10 @@ ncluster <- paises_clean %>%
 
 ```
 
-La mayoria de los indices indican que el numero optimo de clusters a formar es 2. Aplicaremos ahora el metodo de k-means de dos maneras:
+La mayoría de los indices indican que el número óptimo de clusters a formar es 2. Aplicaremos ahora el método de k-means de dos maneras:
 
-- Iniciando los centroides con las medias de los grupos arrojado por el metodo jerarquico
-- Iniciando los centroides aleatoriamente
+1. Iniciando los centroides con las medias de los grupos arrojado por el método jerárquico
+2. Iniciando los centroides de manera aleatoria
 
 ```{r kmeans}
 centroids <- paises_clean %>% 
@@ -114,7 +205,7 @@ list(centroid = km_cent, random = km_random) %>%
   gt::gt()
 ```
 
-Podemos observar que en este caso la inicializacion de los centroides no afecta el resultado final. Verifiquemos ahora cuales son los sectores que mas influyen en la determinacion de los grupos mediante el **t test**
+Podemos observar que en este caso la inicialización de los centroides no afecta el resultado final. Verifiquemos ahora cuales son los sectores que mas influyen en la determinación de los grupos mediante el **t test**
 
 ```{r t_test}
 paises_clust <- paises_clean %>% 
@@ -134,12 +225,12 @@ list_test %>%
 
 ```
 
-Hay 4 sectores que marcan mayor diferencia entre los cluster. Por un lado los sectores de servicios y finanzas y por otro lado sectores de mano de obra de campo, como Agricultura y Mineria. Podemos ahora ver la distribucion de los paises en las dos variables mas influyentes
+Hay 4 sectores que marcan mayor diferencia entre los cluster. Por un lado los sectores de servicios y finanzas y por otro lado sectores de mano de obra de campo, como Agricultura y Minería. Podemos ahora ver la distribución de los países en las dos variables mas influyentes
 
 ```{r scatter}
 paises_clust %>% 
   ggplot(aes(x = `Servicios Ind`, y = Agricultura, fill = cluster, label = pais)) + 
-  geom_label(color = 'white') +
+  geom_label(color = 'white', alpha = .7) +
   theme(
     legend.position = 'top',
     legend.justification = 'left'
@@ -148,9 +239,9 @@ paises_clust %>%
 
 ```
 
-Observamos que el cluster 1 responde a los paises que tienen poca mano de obra en el sector Agricultura y destinan mas empleos al sector Finanzas y Servicios. Caso contrario al cluster 2, que corresponde a paises que destinan mas empleos al sector Agricultura que al de Servicios y finanzas. Podriamos suponer que el metodo de agrupacion logra diferenciar entre paises "desarrollados" que destinan mayor cantidad a "empleos de oficina", y paises "Agricultores", es decir que tienen una mayor cantidad de mano de obra en trabajo de campo.
+Observamos que el cluster 1 responde a los países que tienen poca mano de obra en el sector Agricultura y destinan mas empleos al sector Finanzas y Servicios. Caso contrario al cluster 2, que corresponde a países que destinan mas empleos al sector Agricultura que al de Servicios y finanzas. Podríamos suponer que el método de agrupación logra diferenciar entre países "desarrollados" que destinan mayor cantidad a "empleos de oficina", y países "Agricultores", es decir que tienen una mayor cantidad de mano de obra en trabajo de campo.
 
-Podemos ver tambien la agrupacion geografica de los clusters
+Podemos ver también la agrupación geográfica de los clusters
 
 ```{r plotmap}
 countries <- c(
@@ -179,4 +270,4 @@ hcmap(
 
 ```
 
-Podemos observar que el cluster de "Trabajo de Oficina" esta conformado por paises de europa central y escandinavos mientras que el cluster "Trabajo de Campo" esta conformado en su mayoria por paises de europa oriental. Tambien vemos que los paises vecinos pertenecen al mismo cluster, por lo que podriamos suponer que existe una variable geografica que afecta la distribucion del empleo en los paises
+Podemos observar que el cluster de "Trabajo de Oficina" esta conformado por países de Europa central y escandinavos mientras que el cluster "Trabajo de Campo" esta conformado en su mayoría por países de Europa oriental. También vemos que los países vecinos pertenecen al mismo cluster, por lo que podríamos suponer que existe una variable geográfica que afecta la distribución del empleo en los países

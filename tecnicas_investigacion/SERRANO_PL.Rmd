@@ -1,0 +1,252 @@
+---
+title: "**ESPECIALIZACIÓN EN  MÉTODOS CUANTITATIVOS PARA LA GESTIÓN Y ANÁLISIS DE DATOS EN ORGANIZACIONES**"
+subtitle: "**E72. 05 Técnicas de Investigación Operativa para la Gestión**"
+date: "**Trabajo Final**"
+output: 
+  pdf_document:
+    template: ../md_formats/tecnicas_template.tex
+    # keep_tex: true
+    highlight: default
+    includes:
+      in_header: ../md_formats/tecnicas.tex
+urlcolor: blue
+---
+
+\
+
+## Actividad: Programación Lineal {.unlisted .unnumbered}
+
+\vskip 3.5em
+
+## Docente: Bianco Maria Jose {.unlisted .unnumbered}
+## Estudiante: Rodrigo Serrano {.unlisted .unnumbered}
+
+\newpage
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = F, message = F, fig.align = 'center')
+# library(ggplot2)
+# thematic::thematic_rmd(
+#   bg = "#ffffff", fg = '#4a4a4a', accent = '#e9832d', font = 'Roboto'
+#   )
+```
+
+```{r}
+library(lpSolveAPI) # Aplicacion de Modelo PL
+library(tidyverse) # Manipulacion de datos
+library(gt) # Creacion de tablas
+```
+
+
+### 1) Formular un modelo matemático de Programación Lineal que permita maximizar el rendimiento anual de la inversión
+
+#### Definición de la función solve_lp
+
+\
+
+Definimos una función para aplicar el modelo de programación lineal de una manera mas sencilla y ordenada. La función esta basada en la clase asincrónica donde se ejemplificó el problema de TOYCO. Toma como inputs las restricciones del modelo así como la función objetivo. Retorna una lista con los resultados óptimos y los análisis de sensibilidad, tanto de los coeficientes de la función objetivo como de los RHS de las restricciones. En este [link](https://github.com/rodserr/uba-classroom/blob/main/tecnicas_investigacion/programacion_lineal/lp_ejercicios_1.R) se pueden ver algunos ejemplos resueltos con la función `solve_lp`
+
+```{r solver}
+solve_lp <- function(obj_function, constrains, constrains_rhs, constrain_type, 
+                     optimization_type = 'max', model_name = 'lp_model', 
+                     .lower = NULL, .upper = NULL){
+  
+  # obj_function: vector nombrado de los coeficientes de la funcion objetivo
+  # constrains: lista nombrada con los coeficientes de las restricciones (LHS)
+  # constrains_rhs; lista nombrada con los valores de las restricciones (RHS)
+  # constrain_type: vector de longitud igual al numero de restricciones,
+  #                 definiendo el tipo de restriccion '<=' '>=' '='
+  # optimization_type: string definiendo el tipo de optimizacion 'max' o 'min'
+  # model_name: Nombre del modelo a imprimir en los resultados
+  # .lower: lower boundaries
+  # .upper: upper boundaries
+  
+  # return: lista nombrada con los resultados de la optimizacion y analisis de sensibilidad
+  
+  n_coef_obj <- length(obj_function)
+  
+  # Funcion Objetivo
+  lp <- make.lp(nrow = 0, ncol = n_coef_obj)
+  
+  name.lp(lp, model_name)
+  
+  colnames(lp) <- names(obj_function)
+  
+  aux <- lp.control(
+    lp, simplextype = 'primal', sense = optimization_type, pivoting = 'steepestedge'
+    )
+  
+  set.objfn(lp, obj = unname(obj_function))
+  
+  # Restricciones
+  set.type(lp, columns = 1:n_coef_obj, type = 'real')
+  
+  for(cons in 1:length(constrains)){
+    
+    add.constraint(
+      lp, 
+      xt = constrains[[cons]], 
+      type = constrain_type[[cons]], 
+      rhs = constrains_rhs[[cons]]
+      )
+    
+  }
+  
+  set.bounds(lp, lower = .lower, upper = .upper, columns = 1:n_coef_obj)
+  
+  rownames(lp) <- names(constrains)
+  
+  # Resolver y extraer resultados
+  solve(lp)
+  
+  Var.Dec. <- matrix(get.variables(lp), 1, n_coef_obj)
+  
+  colnames(Var.Dec.) <- colnames(lp)
+  rownames(Var.Dec.) <- 'Resultado Optimo'
+  
+  Func.Obj. <- get.objective(lp)
+  
+  Resultado.lp <- list(Problema = lp, Optimo = Func.Obj., Var.Dec. = Var.Dec.)
+  
+  # Analisis de Sensibilidad: RHS Restricciones
+  SensRHS <- matrix(NA, nrow(lp), 5)
+  rownames(SensRHS) <- rownames(lp)
+  colnames(SensRHS) <- c('Holgura', 'Precio Sombra', 'LI rhs', 'rhs Actual', 'LS rhs')
+  
+  SensRHS[, 'Holgura'] <- get.rhs(lp)-get.constraints(lp)
+  SensRHS[, 'Precio Sombra'] <- get.sensitivity.rhs(lp)$duals[1:nrow(lp)]
+  SensRHS[, 'rhs Actual'] <- get.rhs(lp)
+  
+  SensRHS[SensRHS[, 'Holgura'] == 0, 'LI rhs'] <- 
+    get.sensitivity.rhs(lp)$dualsfrom[1:nrow(lp)][SensRHS[, 'Holgura'] == 0]
+  SensRHS[SensRHS[, 'Holgura'] == 0, 'LS rhs'] <- 
+    get.sensitivity.rhs(lp)$dualstill[1:nrow(lp)][SensRHS[, 'Holgura'] == 0]
+  SensRHS[SensRHS[, 'Holgura'] > 0, 'LI rhs'] <- 
+    get.constraints(lp)[SensRHS[, 'Holgura'] > 0]
+  SensRHS[SensRHS[, 'Holgura'] > 0, 'LS rhs'] <- Inf
+  
+  # Analisis de Sensibilidad: Coeficientes de la ecuacion
+  SensObj <- matrix(NA, ncol(lp), 4)
+  rownames(SensObj) <- colnames(lp)
+  colnames(SensObj) <- c('Min.Coef.Obj.', 'Coef.Obj.', 'Max.Coef.Obj.', 'Precio Reducido')
+  
+  for (i in 1:ncol(lp)){
+    SensObj[i, 'Coef.Obj.'] <- get.column(lp, i)$column[1]
+  }
+  
+  SensObj[, 'Min.Coef.Obj.'] <- get.sensitivity.obj(lp)$objfrom
+  SensObj[, 'Max.Coef.Obj.'] <- get.sensitivity.obj(lp)$objtill
+  
+  SensObj[, 'Precio Reducido'] <- 
+    -get.sensitivity.rhs(lp)$duals[(nrow(lp)+1):(nrow(lp)+ncol(lp))]
+  
+  list(
+    Resultado.lp = Resultado.lp,
+    SensRHS = SensRHS,
+    SensObj = SensObj
+  )
+  
+}
+```
+
+#### Planteamiento del modelo
+
+\
+
+El problema consiste en maximizar el rendimiento dado distintos tipos de inversión, por lo que las variables se definen como:
+
+-   $x_{1} = \textrm{Inversion en Certificados de Depositos (\$ Millones)}$
+-   $x_{2} = \textrm{Inversion en Bonos Corporativos (\$ Millones)}$
+-   $x_{3} = \textrm{Inversion en Bonos de Tesoreria (\$ Millones)}$
+-   $x_{4} = \textrm{Inversion en Préstamos para la Construccion (\$ Millones)}$
+
+La función objetivo consistirá en las variables por sus correspondientes rendimientos esperados:
+
+$Max \quad  .07x_{1}+.11x_{2}+.19x_{3}+.15x_{4}$
+
+Las restricciones se definen como:
+
++ Capital Máximo a invertir:
+\
+  $x_{1} + x_{2} + x_{3} + x_{4} \le 5$
+
++ Inversión Mínima en Bonos de Tesorería y Préstamos para la Construcción:
+\
+  $x_{3} + x_{4} \ge .55(x_{1} + x_{2} + x_{3} + x_{4}) \\ -.55x_{1}-.55x_{2} + .45x_{3} + .45x_{4} \ge 0$
+
++ Inversión Mínima en Certificados de Depósitos:
+\
+  $x_{1} \ge .15(x_{1} + x_{2} + x_{3} + x_{4}) \\ .85x_{1}-.15x_{2} - .15x_{3} - .15x_{4} \ge 0$
+
+Por otro lado definimos la inversión Máxima para cada variable, estas restricciones si bien se pueden plantear como las anteriores, resulta mas sencillo definiendo un límite superior para cada variable, el cual se asigna con la función `set.bounds`
+
+Los límites vendrían siendo:
+
+* $x_{1} \le 1$
+* $x_{2} \le 2.5$
+* $x_{3} \le 1.5$
+* $x_{4} \le 1.8$
+
+### 2) Resolución el modelo
+
+```{r planteamiento}
+# Tipos de inversiones
+obj <- c("certificados" = .07, "bonos_corp" = .11, "bonos_tes" = .19, "prestamos" = .15)
+
+# Restricciones
+# Cambiamos el signo de las dos ultimas restricciones para mejor interpretabilidad
+cons_list <- list(
+  capital_max = rep(1, length(obj)),
+  min_tesoreria_prestamo = c(-.55, -.55, .45, .45)*-1,
+  min_certificados = c(.85, -.15, -.15, -.15)*-1
+)
+
+# RHS
+cons_rhs <- c(5, 0, 0)
+
+# Direccion de la Desigualdad
+cons_type <- rep('<=', 3)
+
+# Limites superiores
+upper_bound <- c(1, 2.5, 1.5, 1.8)
+
+# Aplicacion de la funcion solve_lp
+(solution <- solve_lp(obj, cons_list, cons_rhs, cons_type,
+                      model_name = 'Bank IO', .upper = upper_bound))
+```
+
+Se observa que el monto asignado a cada variable es de:
+
+```{r sol_coef}
+solution$Resultado.lp$Var.Dec. %>%
+  as.data.frame() %>% 
+  gt::gt() %>% 
+  gt::tab_header(title = 'Solucion Optima', subtitle = 'Coeficientes de la Funcion Objetivo')
+```
+
+Es decir se utiliza todo el capital posible para los tipos de inversión bonos del tesoro y préstamos de construccion, mientras que el resto se reparte entre bonos corporativos y certificados de depositos. Se obverva también que el rendimiento anual esperado para esta combinación es de 0.712 o \$ 712.000, lo que equivale a un retorno de 14.2% sobre el capital invertido
+
+### 3) Composición óptima de la inversión y el rendimiento total esperado en un escenario en que el rendimiento de los Certificados de depósito aumente a 10%
+
+
+```{r sen_obj}
+solution$SensObj %>% 
+  as_tibble(rownames = 'variables') %>% 
+  gt::gt() %>% 
+  gt::tab_header(title = 'Analisis de Sensibilidad', subtitle = 'Funcion Objetivo')
+
+```
+
+Si el rendimiento de los Certificados de depósito aumentan a 10%, la solución óptima sigue siendo la misma, ya que vemos que los intervalos de optimalidad para esta variable van de -0.62 hasta 0.11. Es decir para que la solución se modifique, el rendimiento de los Certificados de depósito deberá ser mayor a 11%
+
+### 4) Analizar, si es conveniente destinar \$900.000 más para invertir en esta cartera suponiendo que para hacerlo haya que retirar esa suma de otras inversiones donde tenían un rendimiento de 10%
+
+```{r sen_rhs}
+solution$SensRHS %>% 
+  as_tibble(rownames = 'constrains') %>%
+  gt::gt() %>% 
+  gt::tab_header(title = 'Analisis de Sensibilidad', subtitle = 'RHS')
+
+```
+
+El precio sombra para la restricción del capital máximo es de 0.104, es decir, por cada unidad que se aumente la restricción, la solución óptima aumentará en \$10.400. Esto será válido siempre y cuando el capital máximo a invertir se mantenga entre \$3.882.353 y \$6.000.000. Si aumentamos el capital a invertir en \$900.000, esto representaría 0.9 unidades, por lo que la solución óptima aumentará 0.0936 y no 0.104. La solucion óptima sería entonces $0.0936+0.712 = 0.8056$ es decir \$805.600, lo que equivaldría a un retorno de 13.6% ($805.600/5.900.000$). En conclusión, siendo este retorno mayor a 10%, si es conveniente destinar los \$900.000 a esta cartera, retirandolos de las otras inversiones

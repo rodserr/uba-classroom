@@ -1,0 +1,78 @@
+---
+title: "**ESPECIALIZACIÓN EN  MÉTODOS CUANTITATIVOS PARA LA GESTIÓN Y ANÁLISIS DE DATOS EN ORGANIZACIONES**"
+subtitle: "**E72. 05 Técnicas de Investigación Operativa para la Gestión**"
+date: "**Trabajo Final**"
+output: 
+  pdf_document:
+    template: ../md_formats/tecnicas_template.tex
+    # keep_tex: true
+    highlight: default
+    includes:
+      in_header: ../md_formats/tecnicas.tex
+urlcolor: blue
+---
+
+\
+
+## Actividad: Simulación {.unlisted .unnumbered}
+
+\vskip 3.5em
+
+## Docente: Bianco Maria Jose {.unlisted .unnumbered}
+## Estudiante: Rodrigo Serrano {.unlisted .unnumbered}
+
+\newpage
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = F, message = F, fig.align = 'center')
+# library(ggplot2)
+thematic::thematic_rmd(
+  bg = "#ffffff", fg = '#4a4a4a', accent = '#e9832d', font = 'Roboto'
+  )
+```
+
+### a) Determinar la distribución de las ventas mensuales (en miles de $) de dicho comercio, presentando el histograma correspondiente.
+
+Para generar las simulaciones necesarias, definimos una función `ventas` que simula las ventas para un número `.days` de días
+
+```{r}
+ventas <- function(.days){
+  s <- sample(
+    c(10, 20, 30, 40, 50),
+    size = .days,
+    replace = T,
+    prob = c(.20, .25, .25, .20, .10)
+    )
+  sum(s) 
+}
+
+# Numero de simulaciones
+n_sim <- 5000
+
+set.seed(2021)
+ventas_sim <- replicate(n_sim, ventas(30))
+
+# Utilizamos ggplot2 para generar el histograma
+library(ggplot2)
+
+ggplot(as.data.frame(ventas_sim), aes(x = ventas_sim)) +
+  geom_histogram(binwidth = 10) +
+  labs(x = 'Ventas Mensuales')
+
+```
+
+Observamos que los datos se ajustan a una distribución normal
+
+### b) ¿Cuál es la probabilidad empírica de que el comercio pueda incorporar 3 nuevos empleados?
+
+Calculando la media y desviación de las ventas simuladas podemos obtener la probabilidad empírica, asumiendo que las ventas se ajustan a una distribución normal
+
+```{r}
+# Probabilidad Empirica
+1-pnorm(900, mean = mean(ventas_sim), sd = sd(ventas_sim))
+
+# Probablidad Simulada
+sum(ventas_sim>900)/n_sim
+```
+
+Podemos observar que la probablidad empírica de que el comercio pueda incorporar 3 nuevos empleados es de **0.143**. A manera de comparación calculamos también la probabilidad a partir de las simulaciones: **0.128**
