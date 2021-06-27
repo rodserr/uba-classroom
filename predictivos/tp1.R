@@ -58,7 +58,7 @@ table(udemy_raw$bestseller)/nrow(udemy_raw)
 udemy_baseline <- udemy_raw %>% 
   mutate(across(where(is.character), as_factor))
 
-baseline_acc <- check_accuracy(udemy_baseline)
+udemy_baseline_acc <- check_accuracy(udemy_baseline)
 
 # 1st Try--------
 
@@ -110,8 +110,9 @@ udemy_try1 <- udemy_baseline %>%
     # Parse dates and compute features
     across(ends_with('_date'), ~as.character(.x) %>% lubridate::ymd()),
     last_update_date = if_else(is.na(last_update_date), published_date, last_update_date),
-    days_sice_last_update = difftime(today(), last_update_date, units = 'days') %>% as.numeric(),
-    days_sice_created = difftime(today(), created_date, units = 'days') %>% as.numeric(),
+    days_since_last_update = difftime(today(), last_update_date, units = 'days') %>% as.numeric(),
+    days_since_created = difftime(today(), created_date, units = 'days') %>% as.numeric(),
+    days_since_updated = difftime(last_update_date, published_date, units = 'days') %>% as.numeric(),
     revision_time = difftime(published_date, created_date, units = 'days') %>% as.numeric(),
     published_month = month(published_date) %>% as_factor(),
     
@@ -142,7 +143,7 @@ udemy_try1 %>%
   rownames_to_column('id') %>% 
   pivot_longer(-c(id, bestseller)) %>% 
   ggplot(aes(x = value, fill = bestseller)) +
-  geom_histogram(alpha = .4) +
+  geom_density(alpha = .4) +
   facet_wrap(~name, scales = 'free')
 
    # Check contingencia table
@@ -154,23 +155,108 @@ udemy_try1 %>%
   ggplot(aes(y = n, x = value, fill = bestseller)) +
   geom_col() +
   facet_wrap(~name, scales = 'free')
-
+  
+  # Buld new dataset
 udemy_try2 <- udemy_try1 %>% 
-  select(bestseller, ins_exp, instructors, category, objectives)
+  select(bestseller, ins_exp, instructors, category, objectives, days_since_updated, days_since_last_update, days_since_created)
 
 udemy_try2_acc <- check_accuracy(udemy_try2)
 
 # To try with rapidminer
 udemy_try2 %>% write.csv('predictivos/udemy_try2.csv')
 
+skimr::skim(udemy_try2)
+
+
+# 3rd Try----
+
+instructor_courses <- instructors %>% 
+  left_join(
+    count(instructors, instructor_id),
+    by = 'instructor_id'
+  ) %>% 
+  group_by(id) %>% 
+  summarise(intructor_n_courses = max(n) %>% as_factor())
+
+udemy_try3 <- udemy_try2 %>% 
+  rownames_to_column('id') %>% 
+  mutate(id = as.numeric(id)) %>% 
+  left_join(instructor_courses, by = 'id') %>% 
+  select(-id, -days_since_created, -days_since_last_update)
+
+udemy_try3_acc <- check_accuracy(udemy_try3)
+
+# To try with rapidminer
+udemy_try3 %>% write.csv('predictivos/udemy_try3.csv')
+
+# 4th Try----
+instructor_eff <- udemy_try3 %>%  
+  count(instructors, bestseller) %>%
+  pivot_wider(values_from = n, names_from = bestseller) %>%
+  mutate(
+    across(c(no, yes), ~replace_na(.x, 0)),
+    eff = yes/(no+yes)
+  ) %>% 
+  arrange(desc(eff))
+
+instructor_eff %>% ggplot(aes(x = eff)) + geom_density()
+
+udemy_try4 <- udemy_try3 %>% 
+  left_join(instructor_eff %>% select(-yes, -no), by = 'instructors') %>% 
+  select(-instructors)
+
+udemy_try4_acc <- check_accuracy(udemy_try4)
+
+# To try with rapidminer
+udemy_try4 %>% write.csv('predictivos/udemy_try4.csv')
+
+# 5th Try----
+objectives_eff <- udemy_try4 %>% 
+  count(objectives, bestseller) %>%
+  pivot_wider(values_from = n, names_from = bestseller) %>%
+  mutate(
+    across(c(no, yes), ~replace_na(.x, 0)),
+    obj_eff = yes/(no+yes)
+  ) %>% 
+  arrange(desc(obj_eff))
+
+udemy_try5 <- udemy_try4 %>% 
+  select(-objectives)
+
+udemy_try5_acc <- check_accuracy(udemy_try5)
+
+# To try with rapidminer
+udemy_try5 %>% write.csv('predictivos/udemy_try5.csv')
+
+# 6th Try----
+category_eff <- udemy_try5 %>% 
+  count(bestseller, category) %>% 
+  pivot_wider(values_from = n, names_from = bestseller) %>%
+  mutate(
+    across(c(no, yes), ~replace_na(.x, 0)),
+    obj_eff = yes/(no+yes)
+  ) 
+
+udemy_try6 <- udemy_try5 %>% 
+  left_join(category_eff %>% select(-yes, -no), by = 'category') %>% 
+  select(-category)
+
+udemy_try6_acc <- check_accuracy(udemy_try6)
+
+# To try with rapidminer
+udemy_try6 %>% write.csv('predictivos/udemy_try6.csv')
 
 # Compares Trys-----
 
 list(
-  baseline = baseline_acc, 
+  baseline = udemy_baseline_acc, 
   try1 = udemy_try1_acc, 
-  try2 = udemy_try2_acc
+  try2 = udemy_try2_acc,
+  try3 = udemy_try3_acc,
+  try4 = udemy_try4_acc,
+  try5 = udemy_try5_acc,
+  try6 = udemy_try6_acc
   ) %>% 
-  # map(~.$accuracy)
-  map(~.$cm)
+  map(~.$accuracy)
+  # map(~.$cm)
 
