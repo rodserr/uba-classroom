@@ -1,0 +1,124 @@
+---
+title: "No surface Model"
+author: "Rodrigo Serrano"
+date: "8/24/2021"
+output: pdf_document
+---
+
+Linear Model NO surface
+
+```{r text_model}
+.custom_words <- c('nº', 'av', 'br', 'x', 'o', 'dos', 'tres', 'n', 'hs', 'm')
+
+text_wf_ns <- recipe(price ~ description+lat+lon+rooms+bedrooms+
+                    bathrooms+barrio+delitos+embajadas+precio_m2_ext+escuelas+
+                    subte+hospitales+culturales, data = train) %>%
+  step_mutate(description = str_remove_all(description, '\\d|\\n')) %>% 
+  step_tokenize(description) %>%
+  step_stopwords(description, language = 'es') %>% 
+  step_stopwords(description, custom_stopword_source = .custom_words) %>% 
+  step_tokenfilter(description, max_tokens = tune()) %>%
+  step_tf(description) %>%
+  step_mutate(barrio = factor(barrio)) %>%
+  step_other(barrio, threshold = .01) %>%
+  step_dummy(all_nominal_predictors()) %>% 
+  step_normalize(all_predictors()) %>% 
+  workflow(linear_reg(engine = "glmnet", penalty = tune()))
+
+text_tune_ns <- text_wf_ns %>%
+  tune_grid(cv_folds,
+            control = grid_control,
+            metrics = metric_set(rmse),
+            grid = crossing(penalty = 10 ^ c(-4),
+                            max_tokens = c(500)))
+beepr::beep()
+autoplot(text_tune_ns)
+
+text_fit_ns <- text_wf_ns %>%
+  finalize_workflow(select_best(text_tune_ns)) %>%
+  fit(train)
+
+text_fit_ns %>%
+  augment(validation) %>%
+  rmse(.pred, price)
+
+text_fit_ns$fit$fit$fit %>%
+  tidy() %>%
+  filter(lambda >= select_best(text_tune_ns)$penalty) %>%
+  filter(lambda == min(lambda),
+         term != "(Intercept)") %>%
+  top_n(50, abs(estimate)) %>%
+  mutate(term = fct_reorder(term, estimate)) %>%
+  ggplot(aes(estimate, term, fill = estimate > 0)) +
+  geom_col()
+```
+
+Random Forest NO surface
+
+```{r rf_model}
+rf_wf_ns <- recipe(price~lat+lon+rooms+bedrooms+
+                    bathrooms+barrio+delitos+embajadas+precio_m2_ext, data = train) %>% 
+  step_mutate(barrio = factor(barrio)) %>%
+  step_other(barrio, threshold = .01) %>%
+  step_dummy(all_nominal_predictors()) %>% 
+  workflow(
+    rand_forest(mtry = tune(), min_n = 5, trees = 1000) %>% 
+      set_engine("ranger", importance = 'impurity') %>% 
+      set_mode("regression")
+  )
+
+rf_tune_ns <- rf_wf_ns %>%
+  tune_grid(cv_folds,
+            control = grid_control,
+            metrics = metric_set(rmse),
+            grid = crossing(mtry=c(12)))
+beepr::beep()
+autoplot(rf_tune_ns)
+
+rf_fit_ns <- rf_wf_ns %>%
+  finalize_workflow(select_best(rf_tune_ns)) %>%
+  fit(train)
+
+rf_fit_ns %>%
+  augment(validation) %>%
+  rmse(.pred, price)
+  rmse(exp(.pred), exp(price))
+
+vip::vip(rf_fit_ns$fit$fit$fit, num_features= 20)
+
+```
+
+Stack
+
+```{r}
+
+final_model_ns <- blend_models(text_tune_ns, rf_tune_ns)
+final_model_ns$blend_plot
+
+check_blend_model(final_model_ns)
+
+
+```
+
+Prediction
+
+```{r}
+test_preds_ns <- propiedades_test$w_na %>%
+  bind_cols(predict(final_model_ns$blended_fit_fulldata, .)) %>%
+  transmute(id, price=exp(.pred)) %>% 
+  replace_nocaba()
+
+bind_rows(
+  test_preds_ns %>% mutate(sample = 'test'),
+  propiedades %>% transmute(id = as.character(id), price, sample = 'train')
+) %>%
+  filter(price<200000) %>% 
+  ggplot(aes(x=price)) +
+  geom_histogram(bins = 50) +
+  facet_wrap(~sample, scales = 'free_y', ncol = 1)
+
+test_preds_ns %>% write_csv("predictivos/entregas/tpfinal_5_ns.csv")
+
+```
+
+

@@ -1,0 +1,751 @@
+---
+title: "Trabajo Grupal 2"
+author: "Rodrigo Serrano"
+date: "7/16/2021"
+output: html_document
+---
+
+# init
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(lubridate)
+library(tidymodels)
+library(rpart)
+library(skimr)
+library(tidytext)
+library(thematic)
+library(discrim)
+library(themis)
+
+# theme
+thematic::thematic_on()
+
+# Read raw udemy
+udemy_train <- readxl::read_excel('data/fmap-2021-udemy/udemy_entrenamiento.xlsx')
+udemy_test <- readxl::read_excel('data/fmap-2021-udemy/udemy_prueba.xlsx')
+
+```
+
+Revision rapida del dataset
+
+```{r}
+skim(udemy_train)
+```
+
+Transformar fechas a date y variable dependiente a factor en ambos datasets
+
+```{r}
+
+udemy_train <- udemy_train %>% 
+  mutate(
+    across(ends_with('_date'), ~lubridate::ymd(.x)),
+    bestseller = factor(bestseller)
+  )
+
+udemy_test <- udemy_test %>% 
+  mutate(
+    across(ends_with('_date'), ~lubridate::ymd(.x)),
+    bestseller = factor(bestseller)
+  )
+
+```
+
+Verificamos que test este conformado solo por cursos creados en Marzo-2021
+
+```{r}
+
+list('train'=udemy_train, 'test'=udemy_test) %>% 
+  map_df(.id = 'sample', function(.tbl){
+    .tbl %>% 
+      summarise(across(ends_with('_date'), .fns = c('max'=max, 'min'=min), .names = c('{.fn}_{.col}')))
+  })
+  
+```
+
+
+# Train Split
+veamos la distribucion de bestseller de febrero para usarlo como validation
+
+```{r}
+udemy_train %>% 
+  mutate(validation = created_date >= '2021-02-01') %>% 
+  count(validation, bestseller) %>% 
+  group_by(validation) %>% 
+  mutate(prop = n/sum(n))
+
+train <- udemy_train %>% 
+  filter(created_date < '2021-02-01')
+
+validation <- udemy_train %>% 
+  filter(created_date >= '2021-02-01')
+```
+
+# EDA
+
+- instructor
+
+```{r}
+train %>% 
+  group_by(instructors) %>% 
+  summarise(bs_count = sum(bestseller=='yes')/n()) %>%
+  filter(bs_count != 0) %>% 
+  ggplot(aes(bs_count)) +
+  geom_histogram()
+
+```
+
+- category
+
+```{r}
+
+train %>%
+  filter(year(created_date)>2019) %>% 
+  group_by(category) %>% 
+  summarise(n=n(),bs_count = sum(bestseller=='yes')/n()) %>%
+  ggplot(aes(y = reorder(category, bs_count), x = bs_count)) +
+  geom_col() +
+  labs(x='category')
+
+train %>% 
+  # filter(category %in% c('Informática y software', 'Desarrollo')) %>% 
+  filter(category %in% c('Salud y fitness', 'Estilo de vida')) %>% 
+  group_by(category, subcategory) %>% 
+  summarise(
+    count = n(),
+    bs_count = sum(bestseller=='yes')/count
+  ) %>%
+  filter(count >10) %>% 
+  slice_max(order_by = bs_count, n = 20, with_ties = F) %>%
+  ggplot(aes(y = tidytext::reorder_within(subcategory, bs_count, category), x = bs_count)) +
+  geom_col() +
+  tidytext::scale_y_reordered() +
+  facet_wrap(~category, scales = 'free', ncol = 2) +
+  labs(y='subcategory', title = 'Top20 subcategory de los Top2 category')
+
+```
+
+
+- Rating
+
+```{r}
+train %>% 
+  ggplot(aes(x=rating, fill = bestseller)) +
+  geom_density(alpha=.5)
+```
+
+- bestseller timeline
+
+```{r}
+train %>% 
+  mutate(year_month = created_date %>% clock::set_day(01)) %>%
+  group_by(year_month, category) %>%
+  summarise(prop=sum(bestseller=='yes')/n()) %>%
+  ggplot(aes(x=year_month, y=prop)) +
+  geom_line() +
+  facet_wrap(~category, scales = 'free_y')
+
+```
+
+- level
+
+```{r}
+train %>% 
+  mutate(level = factor(instructional_level_simple)) %>%
+  group_by(level) %>% 
+  summarise(bs_count=sum(bestseller=='yes')/n()) %>% 
+  ggplot(aes(x=level, y=bs_count)) +
+  geom_col()
+```
+
+- Price
+
+```{r}
+train %>% 
+  mutate(
+    across(ends_with('_price'), ~str_remove(.x, '\\$') %>% as.numeric()),
+    discount_price = if_else(is.na(discount_price), list_price, discount_price),
+    discount = (list_price-discount_price)/list_price
+  ) %>% 
+  ggplot(aes(x=discount, color=bestseller)) +
+  geom_density()
+```
+
+- days since update
+
+```{r}
+train %>% 
+    mutate(
+      last_update_date = if_else(is.na(last_update_date), published_date, last_update_date),
+      days_since_updated = difftime(last_update_date, published_date, units = 'days') %>% as.numeric() %>% abs()
+    ) %>%
+  # filter(bestseller == 'yes') %>%
+  ggplot(aes(x=days_since_updated, color=bestseller)) +
+  geom_density()
+```
+
+- Age of course
+
+```{r}
+train %>% 
+  mutate(
+    course_age = difftime(now(), created_date, units = 'days') %>% as.numeric()
+  ) %>% 
+  ggplot(aes(course_age, color=bestseller))+ geom_density()
+```
+
+- published lectures
+
+```{r}
+train %>% 
+  mutate(lect=cut(num_published_lectures, c(-1, 50, 100, 200, Inf))) %>% 
+  group_by(lect) %>% 
+  summarise(bs_count=sum(bestseller=='yes')/n()) %>% 
+  ggplot(aes(lect, bs_count)) +
+  geom_col()
+
+```
+
+- locale
+
+```{r}
+train %>% 
+  group_by(locale) %>%
+  summarise(bs=sum(bestseller=='yes')/n())
+```
+
+- Price by content
+
+```{r}
+parse_content_duration <- function(.coeff, .type){
+  case_when(
+    .type == 'preguntas' ~ NA_real_,
+    str_detect(.type, 'hora') ~ .coeff*60,
+    T ~ .coeff
+  )
+}
+
+train %>% 
+  transmute(
+    content_coeff = content_info_short %>% str_extract('.*(?=\\s)') %>% str_replace('\\,', '\\.') %>% as.numeric(),
+    content_type = content_info_short %>% str_extract('(?<=\\s).*'),
+    content_duration = parse_content_duration(content_coeff, content_type),
+    across(ends_with('_price'), ~str_remove(.x, '\\$') %>% as.numeric()),
+    discount_price = replace_na(0),
+    hour_price = list_price/content_duration,
+    bestseller
+  ) %>% 
+  ggplot(aes(list_price, color=bestseller)) +
+  geom_density()
+
+```
+
+
+# prepare data
+
+```{r}
+
+# Helpers
+parse_content_duration <- function(.coeff, .type){
+  case_when(
+    .type == 'preguntas' ~ NA_real_,
+    str_detect(.type, 'hora') ~ .coeff*60,
+    T ~ .coeff
+  )
+}
+
+get_instructors <- function(.tbl){
+  # pivotear instructores por curso
+  
+  # Max cantidad de instructores por curso
+  max_instructors <- str_count(.tbl$instructors, '\\,') %>% max(na.rm = T)+1
+  .tbl %>% 
+    select(id, instructors) %>% 
+    separate(
+      instructors, sep = '\\,', into = paste('inst', 1:max_instructors), fill = 'right'
+    ) %>% 
+    pivot_longer(-id, names_to = 'instructor_n', values_to = 'instructor_id', values_drop_na = T) 
+  
+}
+
+instructor_info <- function(.tbl){
+  # Obtener informacion de los instructores
+  
+  instructors <- get_instructors(.tbl)
+  
+  # N Course by instructor
+  instructor_ncourses <- instructors %>% count(instructor_id)
+  
+  # Instructores experimentados: tienen mas de 2 cursos
+  instructors_exp_id <- instructor_ncourses %>% filter(n > 2) %>% pull(instructor_id)
+  
+  # Eficiencia del instructor
+  instructor_eff <- .tbl %>%  
+    count(instructors, bestseller) %>%
+    pivot_wider(values_from = n, names_from = bestseller) %>%
+    mutate(
+      across(c(no, yes), ~replace_na(.x, 0)),
+      inst_efficiency = yes/(no+yes)
+    ) %>% 
+    arrange(desc(inst_efficiency))
+  
+  list(
+    experience=instructors_exp_id,
+    ncourses=instructor_ncourses,
+    efficiency = instructor_eff
+  )
+  
+}
+
+get_token <- function(.tbl, document){
+  # Obtener stems unicos del headline
+  
+  .tbl %>%
+    select(id, category, bestseller, {{document}}) %>% 
+    unnest_tokens(word, {{document}}) %>% 
+    filter(
+      !word %in% stopwords::stopwords('es'), 
+      !str_detect(word, "^[0-9]")
+    ) %>% 
+    mutate(stem=SnowballC::wordStem(word, language = 'es')) %>% 
+    distinct(id, category, bestseller, stem)
+  
+}
+
+get_bestseller_stem <- function(.token, .freq=5, .prop=.6){
+  # Darle probabilidad de bestseller a los stem y filtrar los mejores por cada category
+  
+  .token %>% 
+    group_by(bestseller, category) %>% 
+    count(stem) %>%
+    pivot_wider(names_from = bestseller, values_from = n) %>% 
+    mutate(
+      across(c(no, yes), ~replace_na(.x, 0)),
+      freq=no+yes,
+      prop=yes/freq
+    ) %>% 
+    filter(freq > .freq, prop>.prop) %>% 
+    arrange(desc(freq), desc(prop))
+  
+}
+
+subcategory_info <- function(.tbl){
+  subcat <- .tbl %>% 
+    group_by(subcategory) %>% 
+    summarise(
+      .groups= 'drop', 
+      n=n(),
+      subcat_eff=sum(bestseller=='yes')/n
+    ) %>% 
+    mutate(subcat_eff=if_else(n<=3, subcat_eff*.5, subcat_eff))
+  
+  subcat_bs <- .tbl %>% 
+    filter(bestseller=='yes') %>% 
+    count(category, subcategory) %>%
+    group_by(category) %>% 
+    mutate(subcat_bs_count=n/n())
+  
+  categ <- .tbl %>% 
+    group_by(category) %>% 
+    summarise(
+      .groups= 'drop', 
+      n=n(),
+      cat_eff=sum(bestseller=='yes')/n
+    )
+  
+  list(subcat=subcat, categ=categ, subcat_bs=subcat_bs)
+  
+}
+
+prepare_udemy <- function(.tbl, inst_info, word_info, .subcategory_info){
+  # preparar data para modelar
+  
+  .instructors <- get_instructors(.tbl)
+  
+  # El curso tiene algun Instructor Experimentado?
+  instructors_exp <- .instructors %>% 
+    mutate(ins_exp = instructor_id %in% inst_info$experience) %>% 
+    group_by(id) %>% 
+    summarise(ins_experience = any(ins_exp) %>% as_factor())
+  
+  # Cuantos cursos tiene el instructor mas experimentado?
+  instructor_courses <- .instructors %>% 
+    left_join(
+      inst_info$ncourses,
+      by = 'instructor_id'
+    ) %>% 
+    group_by(id) %>% 
+    summarise(ins_ncourses = max(n) %>% as.integer(), n_instructors = n())
+  
+  # Cuantas palabras claves tiene el curso??
+  token_tbl <- get_token(.tbl, headline)
+  token_freq <- token_tbl %>% 
+    left_join(word_info, by = c('category', 'stem')) %>% 
+    group_by(id) %>% 
+    # summarise(word_freq = sum(!is.na(prop)))
+    summarise(word_freq = sum(prop, na.rm = T))
+  
+  # Final dataset
+  .tbl %>% 
+    mutate(
+      last_update_date = if_else(is.na(last_update_date), published_date, last_update_date),
+      days_since_updated = difftime(last_update_date, published_date, units = 'days') %>%
+        as.numeric() %>% 
+        abs() %>% cut(c(-1, 5, 16, 230, Inf)),
+      rating_cut = rating %>% cut(c(-1, 3, 4, 4.75, 5.01)),
+      level = factor(instructional_level_simple) %>% fct_explicit_na(),
+      n_lectures=cut(num_published_lectures, c(-1, 50, 100, 200, Inf)),
+      content_coeff = content_info_short %>% str_extract('.*(?=\\s)') %>% str_replace('\\,', '\\.') %>% as.numeric(),
+      content_type = content_info_short %>% str_extract('(?<=\\s).*'),
+      content_duration = parse_content_duration(content_coeff, content_type),
+      across(ends_with('_price'), ~str_remove(.x, '\\$') %>% as.numeric()),
+      discount_price = if_else(is.na(discount_price), list_price, discount_price),
+      hour_price = list_price/content_duration,
+      course_age = difftime(now(), created_date, units = 'days') %>% as.numeric()
+    ) %>%
+    left_join(instructors_exp, by = 'id') %>%
+    left_join(instructor_courses, by = 'id') %>%
+    left_join(
+      inst_info$efficiency %>% select(-yes, -no),
+      by = 'instructors') %>%
+    left_join(token_freq, by = 'id') %>%
+    # left_join(.subcategory_info$subcat, by = c('category', 'subcategory')) %>%
+    left_join(.subcategory_info$subcat, by = c('subcategory')) %>%
+    left_join(.subcategory_info$categ, by = 'category') %>%
+    left_join(.subcategory_info$subcat_bs, by = c('category', 'subcategory')) %>%
+    mutate(
+      across(c(inst_efficiency, ins_ncourses, word_freq, subcat_eff, cat_eff, subcat_bs_count), ~replace_na(.x, 0)),
+      ins_experience = ins_experience %>% replace_na(F),
+      hour_price = hour_price %>% replace_na(.06),
+      content_duration = content_duration %>% replace_na(10),
+      across(c(level, ins_experience, rating_cut, n_lectures, days_since_updated), as.integer),
+      
+      # inst_efficiency = cut(inst_efficiency, c(-1, .50, 1.1)) %>% as.integer(),
+      subcat_eff = cut(subcat_eff, c(-1, .50, 1.1)) %>% as.integer(),
+      category = case_when(
+        category %in% c('Desarrollo', 'Informática y software') ~ 'Programacion',
+        category %in% c('Diseño', 'Fotografía y vídeo', 'Música') ~ 'Arte',
+        category %in% c('Finanzas y contabilidad', 'Negocios', 'Marketing') ~ 'Finanzas',
+        category %in% c('Enseñanzas y disciplinas académicas', 'Productividad en la oficina') ~ 'productividad',
+        category %in% c('Estilo de vida', 'Salud y fitness', 'Desarrollo personal') ~ 'Personal'
+      )
+    ) %>%
+    select(inst_efficiency, word_freq, bestseller, days_since_updated, ins_experience, ins_ncourses, n_lectures, rating_cut, 
+      id, category,
+      n_instructors
+      #, subcat_bs_count,cat_eff, subcat_eff,list_price, course_age, hour_price, content_duration
+    )
+}
+
+# Entrenar en data mas reciente
+train_recent <- train #%>% filter(created_date >= '2020-01-01')
+
+# Obtener info de train
+train_ins <- instructor_info(train_recent)
+bs_stem <- get_token(train_recent, headline) %>% get_bestseller_stem(3, .6)
+train_subcat <- subcategory_info(train_recent)
+
+# Preparar train y validation
+train_clean <- prepare_udemy(train_recent, train_ins, bs_stem, train_subcat)
+validation_clean <- prepare_udemy(validation, train_ins, bs_stem, train_subcat)
+
+train_clean %>% skim()
+
+# Para probar con RapidMiner
+train_clean %>% write_csv('train_udemy2.csv')
+validation_clean %>% write_csv('val_udemy2.csv')
+```
+
+Entrenamos en train y probamos en validation
+
+```{r}
+# Parallel Cores
+library(doMC)
+registerDoMC(cores = 5)
+# registerDoSEQ() Para volver a secuencial
+
+apply_dt <- function(.sample){
+  
+  nvars <- ncol(.sample)-2
+  
+  cfolds <- vfold_cv(.sample, v = 10, repeats = 1, strata = bestseller)
+  
+  dt_model <- decision_tree(tree_depth = tune(), min_n = tune(), cost_complexity=tune()) %>% 
+    set_engine("rpart", parms = list(split = 'information')
+               # cost = c(4, rep(1,nvars))
+               ) %>% 
+               # control = rpart::rpart.control(minbucket = tune('minbucket'))) %>% 
+               # control = rpart::rpart.control(minbucket = 20)) %>% 
+    set_mode("classification")
+  
+  .recipe <- recipe(bestseller ~ ., data = .sample) %>%
+    step_rm(id) %>%
+    step_dummy(all_nominal(), -bestseller) %>% 
+    step_smote(bestseller)
+  
+  wflow <- workflow() %>% 
+    add_model(dt_model) %>% 
+    add_recipe(.recipe)
+
+  grid_param <- wflow %>%
+    parameters() %>%
+    finalize(.sample) %>%
+    grid_regular(levels = c(tree_depth=4, min_n=3, cost_complexity=4))
+  
+  grid_control <- crossing(tree_depth = c(12),
+                           min_n = c(10),
+                           # minbucket = seq(40, 100, 20),
+                           cost_complexity= c(.000002)
+                           )
+  
+  trained <- wflow %>% 
+    tune_grid(
+      resamples = cfolds,
+      # grid = grid_param,
+      grid = grid_control,
+      metrics = metric_set(roc_auc, j_index),
+      control = control_resamples(save_pred = TRUE)
+    )
+  
+  list(trained = trained, wflow = wflow)
+  
+}
+
+apply_rf <- function(.sample){
+  
+  cfolds <- vfold_cv(.sample, v = 10, repeats = 1, strata = bestseller)
+  
+  dt_model <- rand_forest(mtry = tune(), trees = tune(), min_n=tune()) %>% 
+    set_engine("ranger") %>% 
+    set_mode("classification")
+  
+  .recipe <- recipe(bestseller ~ ., data = .sample) %>%
+    step_rm(id) %>% 
+    step_dummy(all_nominal(), -bestseller) %>% 
+    step_rose(bestseller)
+  
+  wflow <- workflow() %>% 
+    add_model(dt_model) %>% 
+    add_recipe(.recipe)
+
+  grid_param <- wflow %>%
+    parameters() %>%
+    finalize(.sample) %>%
+    grid_regular(levels = c(mtry=4, trees=4, min_n=4))
+  
+  grid_control <- crossing(mtry = c(8),
+                           min_n = c(30),
+                           # minbucket = seq(40, 100, 20),
+                           trees= c(.02, .002, .0002)
+                           )
+  
+  trained <- wflow %>% 
+    tune_grid(
+      resamples = cfolds,
+      grid = grid_param,
+      # grid = grid_control,
+      metrics = metric_set(roc_auc, j_index),
+      control = control_resamples(save_pred = TRUE)
+    )
+  
+  list(trained = trained, wflow = wflow)
+  
+}
+
+apply_nb <- function(.sample){
+  model <- naive_Bayes(smoothness = tune()) %>% 
+  set_engine("naivebayes") %>% 
+  set_mode("classification")
+
+wflow <- workflow() %>% 
+  add_model(model) %>% 
+  add_recipe(recipe(bestseller ~ ., data = .sample)) 
+
+grid_param <- wflow %>% 
+  parameters() %>%
+  finalize(.sample) %>% 
+  grid_regular(levels = c(smoothness = 15))
+
+grid_control <- crossing(smoothness = c(3, 5, 8),
+                         Laplace = c(7, 10, 15, 21))
+
+trained <- wflow %>% 
+  tune_grid(
+    resamples = cfolds,
+    grid = grid_param,
+    # grid = grid_control,
+    metrics = metric_set(roc_auc),
+    control = control_resamples(save_pred = TRUE)
+  )
+
+list(trained = trained, wflow = wflow)
+
+}
+
+# model_fit <- apply_nb(train_clean)
+# model_fit <- apply_rf(train_clean)
+model_fit <- apply_dt(train_clean)
+
+autoplot(model_fit$trained)
+show_best(model_fit$trained, metric = 'roc_auc', n =10)
+(best <- select_by_one_std_err(model_fit$trained, metric = 'roc_auc', tree_depth))
+(best <- select_by_pct_loss(model_fit$trained, metric = 'roc_auc', limit = 5, desc(cost_complexity)))
+(best <- select_best(model_fit$trained, metric = "roc_auc"))
+
+model_trained <- model_fit$wflow %>% 
+  finalize_workflow(best) %>%
+  fit(train_clean)
+
+# Only for Decision Tree
+model_trained %>% pull_workflow_fit() %>% vip::vip(20) + ggtitle('Classification DT')
+rpart.plot::rpart.plot(model_trained$fit$fit$fit, col = 'black', tweak = 1.2, space = 0, roundint=FALSE)
+
+# Metrics on Validation
+validation_pred <- validation_clean %>% 
+    mutate(
+      pred_prob = predict(model_trained, new_data = ., type = 'prob')$.pred_no,
+      pred = predict(model_trained, new_data = .)$.pred_class
+    )
+
+validation_pred %>% yardstick::roc_auc(truth = bestseller, estimate = pred_prob)
+validation_pred %>% conf_mat(truth = bestseller, estimate = pred)
+
+
+```
+
+# Test
+
+Luego de tener los features claros entremamos el modelo en TODA la data de Train y obtenemos predicciones para Test
+
+```{r}
+
+full_train_ins <- instructor_info(udemy_train)
+full_train_bs_stem <- get_token(udemy_train, headline) %>% get_bestseller_stem(3, .6)
+full_train_subcat <- subcategory_info(udemy_train)
+
+full_train_clean <- prepare_udemy(udemy_train, full_train_ins, full_train_bs_stem, full_train_subcat)
+test_clean <- prepare_udemy(udemy_test, full_train_ins, full_train_bs_stem, full_train_subcat)
+
+skim(full_train_clean)
+skim(test_clean)
+
+# Train final model
+
+cfolds <- vfold_cv(full_train_clean, v = 5, repeats = 1)
+
+full_train_model_fit <- apply_nb(full_train_clean)
+
+autoplot(full_train_model_fit$trained)
+show_best(full_train_model_fit$trained, metric = 'roc_auc')
+
+final_model <- full_train_model_fit$wflow %>%
+  finalize_workflow(select_best(full_train_model_fit$trained, metric = "roc_auc")) %>% 
+  fit(full_train_clean)
+
+final_model %>% pull_workflow_fit() %>% vip::vip() + ggtitle('Classification DT')
+
+test_pred <- test_clean %>%
+  transmute(
+    id = udemy_test$id,
+    bestseller = predict(final_model, new_data = ., type = 'prob')$.pred_yes
+    )
+
+test_pred %>% filter(bestseller>.5) %>% nrow()
+
+test_pred %>% write_csv('predictivos/entregas/tp2_2.csv')
+
+
+```
+
+Model by category
+
+```{r}
+model_by_cat <- train_clean %>% 
+  group_by(category) %>% 
+  nest() %>% 
+  mutate(
+    premodel = map(data, apply_dt),
+    model = map2(premodel, data, function(.x, .y){
+      
+      best <- select_best(.x$trained, metric = "roc_auc")
+      .x$wflow %>% 
+        finalize_workflow(best) %>%
+        fit(.y)
+    })
+  )
+
+val_by_cat <- validation_clean %>%
+  group_by(category) %>% 
+  nest(validation = -category) %>% 
+  left_join(model_by_cat, by = 'category') %>% 
+  mutate(
+    val_prediction = map2(model, validation, function(.x, .y){
+      .y %>% 
+        mutate(
+          pred_prob = predict(.x, new_data = ., type = 'prob')$.pred_no,
+          pred = predict(.x, new_data = .)$.pred_class
+        )
+    }),
+    val_roc = map(val_prediction, ~.x %>% yardstick::roc_auc(truth = bestseller, estimate = pred_prob)),
+    cm = map(val_prediction, ~.x %>% yardstick::conf_mat(truth = bestseller, estimate = pred))
+  )
+
+val_by_cat %>% select(category, val_roc) %>% unnest(val_roc)
+
+val_by_cat %>%
+  select(category,  val_prediction) %>%
+  unnest(val_prediction) %>% 
+  ungroup() %>% 
+  yardstick::roc_auc(truth = bestseller, estimate = pred_prob)
+
+split(val_by_cat$cm,val_by_cat$category)
+
+model_by_cat$category
+autoplot(model_by_cat$premodel[[1]]$trained)
+rpart.plot::rpart.plot(model_by_cat$model[[1]]$fit$fit$fit, col = 'black', tweak = 1.2, space = 0, roundint=FALSE)
+
+
+# Test----
+model_by_cat_full <- full_train_clean %>% 
+  group_by(category) %>% 
+  nest() %>% 
+  mutate(
+    premodel = map(data, apply_dt),
+    model = map2(premodel, data, function(.x, .y){
+      
+      best <- select_best(.x$trained, metric = "roc_auc")
+      .x$wflow %>% 
+        finalize_workflow(best) %>%
+        fit(.y)
+    })
+  )
+
+test_pred_by_cat <- test_clean %>%
+  group_by(category) %>% 
+  nest(validation = -category) %>% 
+  left_join(model_by_cat_full, by = 'category') %>% 
+  mutate(
+    val_prediction = map2(model, validation, function(.x, .y){
+      .y %>% 
+        transmute(
+          id,
+          bestseller = predict(.x, new_data = ., type = 'prob')$.pred_yes
+        )
+    })
+  ) %>%
+  select(category, val_prediction) %>% 
+  unnest(val_prediction) %>%
+  ungroup() %>% 
+  select(-category) %>% 
+  arrange(id)
+
+test_pred_by_cat %>% filter(bestseller>.5) %>% nrow()
+
+test_pred_by_cat %>% write_csv('predictivos/entregas/tp2_4.csv')
+
+
+
+```
+

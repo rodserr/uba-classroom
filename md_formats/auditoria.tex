@@ -1,0 +1,37 @@
+\usepackage{titling}
+\pretitle{\begin{center}
+	\includegraphics[width=5in,height=3in]{../md_formats/encabezado.jpg}\LARGE\\
+    \bigskip
+    }
+\posttitle{\end{center}}
+\usepackage[sfdefault]{roboto}
+\usepackage[T1]{fontenc}
+\usepackage{pgf}
+
+\usepackage{pgfpages}
+
+\definecolor{my_chosen_blue}{RGB}{4,164,148}
+
+\pgfpagesdeclarelayout{boxed}
+{
+  \edef\pgfpageoptionborder{0pt}
+}
+{
+  \pgfpagesphysicalpageoptions
+  {%
+    logical pages=1,%
+  }
+  \pgfpageslogicalpageoptions{1}
+  {
+    border code=\pgfsetlinewidth{1.2pt}\pgfsetstrokecolor{my_chosen_blue}\pgfstroke,%
+    border shrink=\pgfpageoptionborder,%
+    resized width=.95\pgfphysicalwidth,%
+    resized height=.95\pgfphysicalheight,%
+    center=\pgfpoint{.5\pgfphysicalwidth}{.5\pgfphysicalheight}%
+  }%
+
+}
+
+\pgfpagesuselayout{boxed}
+
+

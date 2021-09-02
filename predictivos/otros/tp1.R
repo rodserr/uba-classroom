@@ -9,7 +9,7 @@ library(thematic)
 thematic::thematic_on()
 
 # Read raw udemy
-udemy_raw <- readxl::read_excel('predictivos/udemy_entrenamiento.xlsx')
+udemy_raw <- readxl::read_excel('data/udemy_entrenamiento.xlsx')
 
 # Tidymodels Workflow----
 dt_model <- decision_tree(tree_depth = 10, min_n = 4) %>% 

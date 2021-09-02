@@ -1,0 +1,303 @@
+---
+title: "Métodos Cuantitativos para la Gestión y Análisis de Datos en Organizaciones"
+subtitle: "Gestión y Procesamiento de Base de Datos y Nociones de Auditoría no Presencial"
+author: "Rodrigo Serrano"
+date: "Agosto 2021"
+output: 
+  pdf_document:
+    fig_height: 4
+    # keep_tex: true
+    highlight: default
+    includes:
+      in_header: ../md_formats/auditoria.tex
+urlcolor: blue
+---
+
+\
+
+## Informe Analítico {.unlisted .unnumbered}
+
+## Docentes: Carolina C. Castro {.unlisted .unnumbered}
+
+\newpage
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F, warning = F, message = F, fig.align = 'center', fig.showtext = T)
+library(tidyverse)
+library(skimr)
+library(patchwork)
+library(gt)
+thematic::thematic_rmd(
+  bg = "#ffffff", fg = '#4a4a4a', accent = '#e9832d', font = 'Roboto', qualitative = c("#e9832d", "#04a494", "#4a4a4a", "#ffffff")
+  )
+```
+
+## Generación de Datos
+
+El presente informe tiene como finalidad auditar el conjunto de datos ubicado en la dirección [<https://archive.ics.uci.edu/ml/machine-learning-databases/00222/>]. Evaluando el proceso de generación de los datos así como su cumplimiento con regulaciones e identificando riesgos asociados. Los datos proviene de un estudio elaborado por Sergio Moro y Raul Laureano titulado USING DATA MINING FOR BANK DIRECT MARKETING: AN APPLICATION OF THE CRISP-DM METHODOLOGY, en donde aplican técnicas de aprendizaje automático para predecir si el cliente suscribirá o no un depósito a plazo.
+
+Los datos de cliente provienen de la base de datos interna de la entidad bancaria, mientras que las variables de contacto son producto del proceso de 17 campañas publicitarias generadas también por la misma entidad bancaria entre Mayo de 2008 y Noviembre de 2010. El atributo `no_llame` provendría del registro nacional "No Llame" elaborado por la DIRECCIÓN NACIONAL DE PROTECCIÓN DE DATOS PERSONALES, según ley *N° 26.951*.
+
+Originalmente el conjunto de datos contenía un total de *79.354* contactos, que pasan a ser *45.211* luego de remover registros con valores vacíos y descartar contactos inconclusos.
+
+```{r read}
+set.seed(27072021)
+bank_full <- read_delim("data/bank/bank-full.csv", ";", escape_double = FALSE, trim_ws = TRUE) %>%
+  mutate(
+    across(where(is.character), as.factor),
+    no_llame = rbinom(nrow(.), 1, .05)
+  )
+
+# skimr::skim(bank_full)
+```
+
+Descripción de las variables presentes:
+
+1. age: Edad (numeric) 
+2. job : Tipo de trabajo (categorical: "admin.","unknown","unemployed","management","housemaid","entrepreneur","student", "blue-collar","self-employed","retired","technician","services") 
+3. marital : Estado Civil (categorical: "married","divorced","single"; note: "divorced" means divorced or widowed)
+4. education (categorical: "unknown","secondary","primary","tertiary") 
+5. default: ¿Tiene crédito en mora? (binary: "yes","no")
+6. balance: Balance anual promedio, en euros (numeric) 
+7. housing: ¿Tiene préstamo hipotecario? (binary: "yes","no")
+8. loan: ¿Tiene préstamo personal? (binary: "yes","no") 
+9. contact: Tipo de vía de contacto (categorical: "unknown","telephone","cellular") 
+10. day: Día del mes del último contacto (numeric) 
+11. month: Mes del año del último contacto (categorical: "jan", "feb", "mar", ..., "nov", "dec")
+12. duration: Duración del ultimo contacto, en segundos (numeric)
+13. campaign: Número de contactos realizados durante la campaña para el cliente (numeric, incluye último contacto)
+14. pdays: Número de días que pasaron después de que el cliente fue contactado por última vez desde una campaña anterior (numeric, -1 indica que el cliente no había sido contactado)
+15. previous: Número de contactos realizados antes de esta campaña y para este cliente (numeric) 
+16. poutcome: Resultado de la campaña anterior (categorical: "unknown","other","failure","success")
+17. y: ¿El cliente ha suscrito un depósito a plazo? (binary: "yes","no")
+
+## Calidad de los Datos
+
+Ya que se desconoce el proceso de registro, almacenamiento y metodología de los datos, solo se realizará una revisión de la calidad sobre las inconsistencias que pueden existir propias de la naturaleza de los campos presentes, en este sentido se analizó:
+
+- **Completitud:** que todas las observaciones tengan valor para cada variable. Se asumen valores "unknown" como faltantes
+- **Validez:** que las observaciones no posean valores no válidos para la naturaleza de la variable.
+- **Consistencia:** que las observaciones mantengan consistencia entre variables.
+
+Los resultados obtenidos fueron los siguientes:
+
+```{r calidad}
+# bank_full %>%
+#   select(where(is.numeric)) %>%
+#   pivot_longer(everything()) %>%
+#   ggplot(aes(x=value)) +
+#   geom_histogram() +
+#   facet_wrap(~name, scales='free')
+
+# Valores "unknown"
+.unknown_values <- bank_full %>%
+  mutate(across(everything(), ~.x=='unknown')) %>%
+  map_df(sum) %>%
+  pivot_longer(everything(), names_to = 'Variable', values_to = 'Resultado') %>%
+  filter(Resultado != 0) %>%
+  mutate(
+    `Evaluación` = 'Completitud',
+    `Métrica` = '% de datos "unknown"'
+  )
+
+# Validez
+.validez_duration <- bank_full %>% filter(duration <= 0) %>% nrow()
+.validez_day <- bank_full %>% filter(day < 1 | day > 31) %>% nrow()
+.validez_job <- bank_full %>% filter(!job %in% c("admin.","unknown","unemployed","management","housemaid","entrepreneur","student",
+"blue-collar","self-employed","retired","technician","services")) %>% nrow()
+
+# Consistencia
+.consis_prev <- bank_full %>% filter(previous==0, poutcome %in% c('others', 'failure', 'success')) %>% nrow()
+.consis_pdays <- bank_full %>% filter(previous==0, pdays != -1) %>% nrow()
+.consis_date <- bank_full %>% filter(month %in% c('feb', 'apr', 'jun', 'sep', 'nov'), day == 31) %>% nrow()
+
+.validez_table <- tibble(
+  Variable = c('duration', 'day', 'job'),
+  Resultado = c(.validez_duration, .validez_day, .validez_job),
+  Métrica = c('% de Datos fuera de rango (<=0)', '% de Datos fuera de rango (<1 | >31)', '% de Datos no perteneciente a categorias establecidas')
+) %>%
+  mutate(`Evaluación` = 'Validez')
+
+.consistencia_table <- tibble(
+  Variable = c('previous & poutcome', 'previous & pdays', 'moth & day'),
+  Resultado = c(.consis_prev, .consis_pdays, .consis_date),
+  Métrica = c('% de Datos con previous==0 y poutcome != "unknown" ', '% de Datos previous==0 y pdays != -1', '% de Datos con dias 31 en meses donde no corresponde')
+) %>%
+  mutate(`Evaluación` = 'Consistencia')
+
+.unknown_values %>%
+  bind_rows(.validez_table, .consistencia_table) %>%
+  mutate(Resultado = Resultado/nrow(bank_full)) %>%
+  relocate(Evaluación, Variable, Métrica, Resultado) %>%
+  gt() %>%
+  tab_header(title = 'Calidad de los Datos') %>%
+  fmt_percent(Resultado)
+
+```
+
+El principio de completitud es el más deficiente, especialmente en las variables `contact` y `poutcome`. Sin embargo, se puede establecer que la calidad de los datos es buena, posiblemente hayan pasado por una limpieza previa, ya que los mismos fueron usados para el entrenamiento de modelos predictivos.
+
+## Riesgo de Default
+
+La variable `loan` establece la existencia o no de un préstamo para el cliente, podemos ver que el 16% de los contactos tienen préstamos asociados.
+
+```{r prestamos_share}
+# bank_full %>%
+#   select(where(is.factor)) %>%
+#   pivot_longer(everything()) %>%
+#   count(name, value) %>%
+#   ggplot(aes(x=value, y=n)) +
+#   geom_col() +
+#   facet_wrap(~name, scales='free')
+
+.default_n <- bank_full %>% filter(loan=='yes', default=='yes') %>% nrow()
+
+bank_full %>%
+  count(loan) %>%
+  mutate(prop = n/nrow(bank_full)) %>%
+  ggplot(aes(x=loan, y=n)) +
+  geom_col() +
+  geom_text(aes(label=scales::percent(prop)), nudge_y = 1000) +
+  scale_y_continuous(labels = scales::label_number()) +
+  labs(y = 'Cantidad de Registros', title = 'Registros con Prestamos')
+```
+
+Esto supone un riesgo monetario para el banco. Por ejemplo, de los `7.244` clientes con prestamos ``r .default_n`` tienen un crédito en default. Podemos desarrollar un modelo de regresión logística para clasificar los clientes por riesgo de default e identificar las variables más influyentes. La variable predictora es `default`, y se utiliza como variables explicatorias:  `marital`, `housing`, `balance`, `age` y `job`. Este modelo se entrena sólo con las observaciones que tienen prestamos bancarios asignados.
+
+```{r risk_model}
+bank_loan <- bank_full %>%
+  filter(loan=='yes') %>%
+  transmute(
+    marital, default, housing, balance, age,
+    job = case_when(
+      job %in% c('entrepreneur', 'self-employed') ~  'self-employed',
+      job %in% c('student', 'unemployed') ~  'unemployed',
+      T ~ 'employed'
+    ) %>% as.factor()
+  )
+
+# bank_loan %>% skim()
+#
+# bank_loan %>% lapply(levels)
+#
+# # Balance negativo
+# bank_loan %>% filter(balance<0) %>% nrow()
+# bank_loan %>% filter(balance>0, default=='yes') %>% nrow()
+
+fit <- glm(default~., data = bank_loan, family = binomial)
+# summary(fit)
+
+defaulters <- bank_loan %>%
+  mutate(
+    pred=predict(fit, ., type = 'response'),
+    Riesgo = case_when(
+      pred <= .05 ~ 'bajo',
+      pred <= .1 ~ 'medio',
+      T ~ 'alto',
+    ),
+    predclass=if_else(pred>.05, 'yes', 'no') %>% as.factor()
+  ) %>%
+  mutate(Riesgo = if_else(balance <= 0, 'alto', Riesgo) %>%
+           as_factor() %>%
+           fct_relevel('alto', 'medio', 'bajo')
+         )
+
+# defaulters %>% yardstick::conf_mat(truth = default, estimate = predclass)
+
+# summary(fit)$coefficients %>%
+#   as_tibble(rownames = 'variable') %>%
+#   gt()
+
+# defaulters %>%
+#   ggplot(aes(x=pred)) +
+#   geom_histogram(binwidth = 0.01)
+
+plot_risks <- function(df, class_var){
+
+  df_count <- defaulters %>%
+        count(Riesgo, {{ class_var }}) %>%
+        group_by({{ class_var }}) %>%
+        mutate(prop=n/sum(n))
+
+  df_prop <- df_count %>% mutate(prop = ifelse(Riesgo == 'alto', prop, NA))
+
+  df_count %>%
+    ggplot(aes(x = {{ class_var }}, y=prop, fill=Riesgo)) +
+    geom_col(position = 'dodge') +
+    geom_text(
+      data=df_prop,
+      aes(label=scales::percent(prop), y = prop + 0.08), position = position_dodge(width=.9)
+    ) +
+    scale_y_continuous(labels = scales::label_percent()) +
+    facet_wrap(vars({{ class_var }}), scales = 'free_x') +
+    labs(y = 'Proporción', x = '') +
+    theme(axis.text.x = element_blank(), 
+          axis.ticks.x = element_blank())
+}
+
+```
+
+Al tomar la probabilidad de default arrojada por el modelo se pueden establecer limites para clasificar la observación según el riesgo asociado. Existen `1.210` observaciones con balance negativo, que son automáticamente clasificadas como riesgo alto. Los limites para la clasificación son: riesgo **bajo** [0, 0.05], riesgo **medio** (0.05, 0.1] y riesgo **alto** (0.1, 1].
+
+```{r risk_plots}
+plot_job <- plot_risks(defaulters, job) +
+  labs(title = 'Riesgo por Tipo de Trabajo')
+plot_marital <- plot_risks(defaulters, marital) +
+  labs(title = 'Riesgo por Estado Civil')
+plot_housing <- plot_risks(defaulters, housing) +
+  labs(title = 'Riesgo por Crédito Hipotecario')
+
+plot_balance <- defaulters %>%
+  # filter(balance<1000, balance > -1000) %>%
+  filter(balance<=quantile(balance, .85), balance >= quantile(balance, .01)) %>%
+  ggplot(aes(x=Riesgo, y=balance, fill = Riesgo)) +
+  geom_boxplot()  +
+  labs(title = 'Distribución del Balance por Riesgo',
+       subtitle='Datos entre cuantiles [0.01, 0.85]',
+       x='', y='Balance Anual') +
+  theme(legend.position = 'bottom') +
+  scale_y_continuous(labels=scales::label_number())
+
+(plot_housing|plot_marital)/(plot_job) +
+  plot_layout(guides = "collect") & theme(legend.position = "bottom")
+
+plot_balance
+
+```
+
+
+De los clientes poseedores de prestamos, el *37%* de los registros de la clase `unemployed` de la variable `job` son clasificados como riesgos altos, un incremento importante con respecto a las otras clases `self-employed` y `employed`. En el caso de la variable `marital`, existe un riesgo más elevado en la categoría divorciado que en casado o soltero. Más del *70%* de los clientes con prestamos y créditos hipotecarios son clasificados como riesgos bajos. En el caso de la variable `balance` lógicamente el riesgo es mayor cuando existe un menor balance anual.
+
+```{r risk_table}
+
+defaulters %>%
+  count(Riesgo, name = 'Cantidad de Registros') %>% 
+  mutate(`Proporción` = `Cantidad de Registros`/sum(`Cantidad de Registros`)) %>%
+  gt() %>% 
+  tab_header(title = 'Proporción de los Riesgos') %>% 
+  fmt_number(`Cantidad de Registros`, decimals = 0) %>% 
+  fmt_percent(`Proporción`, decimals = 1)
+
+```
+
+Otorgar prestamos a clientes con fondos insuficientes representa un riesgo monetario que entre otras consecuencias, podría impactar negativamente la liquidez del banco, para mitigar este riesgo se recomienda:
+
+- Hacer uso de herramientas de análisis de datos como dashboards y visualizaciones para monitorear los posibles casos de riesgo elevado y enviar alertas a los responsables de cobro
+
+- Reforzar los criterios de aceptación del riesgo en base a los datos históricos
+
+## Registro No Llame
+
+El segundo riesgo asociado a este conjunto de datos es el contactar a clientes inscrito en el REGISTRO NACIONAL “NO LLAME”. Según la Ley *N° 26.951*:
+
+"Es obligatoria la consulta de la última actualización disponible de inscritos ante el REGISTRO NACIONAL “NO LLAME” en forma previa a la realización de procedimientos de contacto, publicidad, oferta, venta y regalo de bienes o servicios no solicitados por parte de los sujetos obligados por el artículo 7° de la Ley *N° 26.951*, en la forma que establezca la Autoridad de Aplicación."
+
+Es decir no se deben contactar a clientes inscritos en el registro nacional "No Llame". En el conjunto de datos existen *2.251* registros contactados que equivale al *4.9%* de las observaciones. Lo anterior involucra un riesgo legal que podría acarrear un deterioro en la imagen publica de la entidad bancaria. Para mitigar este riesgo se recomienda la ejecución de los siguientes pasos:
+
+1. Actualizar mensualmente la lista de inscritos en el registro Nacional "No Llame" elaborada por la DIRECCIÓN NACIONAL DE PROTECCIÓN DE DATOS PERSONALES.
+2. Aplicar un procedimiento de muestreo aleatorio simple. El tamaño de la muestra dependerá del tamaño de la población de posibles clientes a contactar, estableciéndose en 10% de la población total.
+3. Corroborar si existen clientes en la muestra que a su vez estén inscritos en el Registro Nacional "No Llame".
+4. Guardar en una tabla de la base de datos las observaciones que coincidan en ambos registros, así como la fecha de consulta y otros datos de interés.
+5. Alertar al departamento responsable de la conformación de la población de posibles clientes a contactar para remover el registro con prioridad alta.
+
+Esta tarea puede automatizarse de manera que se ejecute semanalmente.

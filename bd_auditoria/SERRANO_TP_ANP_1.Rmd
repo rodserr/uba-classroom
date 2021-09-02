@@ -1,0 +1,47 @@
+---
+title: "Métodos Cuantitativos para la Gestión y Análisis de Datos en Organizaciones"
+subtitle: "Gestión y Procesamiento de Base de Datos y Nociones de Auditoría no Presencial"
+author: "Rodrigo Serrano"
+date: "Agosto 2021"
+output: 
+  pdf_document:
+    fig_height: 4
+    # keep_tex: true
+    highlight: default
+    includes:
+      in_header: ../md_formats/auditoria.tex
+urlcolor: blue
+---
+
+\
+
+## Informe Sintético {.unlisted .unnumbered}
+
+## Docentes: Carolina C. Castro {.unlisted .unnumbered}
+
+\newpage
+```{r include=FALSE}
+colorize <- function(x, color){
+  sprintf("\\textcolor{%s}{%s}", color, x)
+}
+```
+
+El objetivo de esta auditoria es identificar riesgos asociados a los datos de clientes de la entidad bancaria. La muestra esta conformada por *45.211* registros que fueron utilizados para la campaña de marketing durante Mayo de 2008 y Noviembre de 2010, la cual fue ejecutada por el departamento de call center de la misma entidad bancaria. La auditoria confirmó que:
+
+- En general el conjunto no presentan problemas en cuanto a la calidad de los datos. Sin embargo, tiene gran cantidad de valores faltantes en dos campos: `contact` (29%) y `poutcome` (82%)
+
+- El *25%* de los registros con prestamos personales presentan riesgo de default alto
+
+- Los principales clientes con riesgo alto de default son clientes divorciados, desempleados, sin crédito hipotecario y con bajo balance anual promedio.
+
+- El *4.9%* de los registros presentan riesgo legal debido a que fueron contactados por la campaña de marketing, estando estos inscritos en el registro de "No Llame" 
+
+Existen oportunidades de mejoras con respecto a los riesgos mencionados anteriormente. Utilizando adecuadamente modelos y herramientas de análisis de datos se pueden monitorear y controlar los riesgos de los registros propensos a caer en default, así como registros que no deban ser incluidos en la población para contactar en campañas de marketing.
+
+## Recomendaciones
+
+- Hacer uso de herramientas de análisis de datos como dashboards y visualizaciones para monitorear los posibles casos de riesgo elevado y enviar alertas a los responsables de cobro. (Prioridad: `r colorize("media", "orange")`)
+
+- Reforzar los criterios de aceptación del riesgo en base a los datos históricos. (Prioridad: `r colorize("media", "orange")`)
+
+- Automatizar consultas controladas para comprobar presencia de clientes en la tabla de posibles contactos y que a su vez estén inscritos en el Registro Nacional "No Llame". Dado a la simplicidad de la consulta esta tarea puede realizarse semanalmente sin implicaciones en costos elevados. (Prioridad: `r colorize("alta", "red")`)

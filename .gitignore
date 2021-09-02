@@ -45,6 +45,8 @@ vignettes/*.pdf
 *.mp4
 *.html
 *.jpg
+*.docx
+*.txt
 
 !md_formats/encabezado.jpg
 

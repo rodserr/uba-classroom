@@ -1,0 +1,395 @@
+---
+title: "**ESPECIALIZACIÓN EN  MÉTODOS CUANTITATIVOS PARA LA GESTIÓN Y ANÁLISIS DE DATOS EN ORGANIZACIONES**"
+subtitle: "**E72.1.01 – FUNDAMENTOS DE MÉTODOS ANALÍTICOS PREDICTIVOS**"
+levelwork: "**PREDICCIÓN DEL PRECIO DE PROPIEDADES**"
+subsubtitle: "**Trabajo Final**"
+output: pdf_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F, warning = F, message = F)
+
+library(tidyverse)
+library(lubridate)
+library(skimr)
+library(scales)
+library(thematic)
+library(tidymodels)
+library(tidytext)
+library(textrecipes)
+library(geodist)
+library(baguette)
+library(stacks)
+library(fuzzyjoin)
+
+thematic::thematic_rmd(
+  bg = "#ffffff", fg = '#4a4a4a', accent = '#e9832d', font = 'Roboto', qualitative = c("#e9832d", "#04a494", "#4a4a4a", "#ffffff")
+)
+
+propiedades <- readxl::read_excel('data/final_predictivos/propiedades_train.xlsx')
+test <- readxl::read_excel('data/final_predictivos/propiedades_test.xlsx')
+
+```
+
+```{r skim_propiedades, include=T}
+skim_without_charts(propiedades) %>% select(-numeric.mean, -numeric.sd)
+```
+
+
+Valores extremos en precio
+
+```{r histogram_precio}
+propiedades %>%
+  filter(price<quantile(price, .98)) %>%
+  ggplot(aes(x=price)) +
+  geom_histogram() +
+  scale_x_continuous(labels = label_dollar(scale=1/1000, suffix = ' k')) +
+  labs(title='Distribucion del Precio', subtitle= 'punto de corte: cuantil 98')
+```
+
+Primeras Observaciones:
+* cuantil 98 parece buen punto de corte para price
+* Habra problemas para utilizar surface_total como variable explicatoria porque test tiene 60% missing (no imputar por la media)
+* Imputar lat, lon y todos los rooms
+* l1 y l2 tienen un unico valor, l4 tiene 94% valores NA
+* surface_covered tiene +60% NA en test y probablemente esta correlacionada con surface_total
+* las fechas de publicacion no se utilizaran para entrenar
+* Viviendas fuera de CABA no se utilizaran para entrenar
+* Probable existencia de duplicados, aplicamos distinct
+
+Primera limpieza:
+* Imputamos lat y lon por la media de l3 (barrio)
+* filtramos 0 < precio < cuantil98
+* filtramos lat > -35, lat < -33, lon > -58.55, lon < -57
+* filtramos surface_total < 700
+* Removemos columnas: l1, l2, l4, surface_covered, start_date, end_date, created_on
+* Removemos duplicados por: lat, lon, rooms, bedrooms, bathrooms, surface_total, price
+
+```{r buil_propiedades_clean}
+first_clean <- function(df, l3_aux){
+  df %>%
+    left_join(l3_aux, by = 'l3') %>%
+    mutate(
+      id = as.character(id),
+      lat = if_else(is.na(lat), mean_lat, lat),
+      lon = if_else(is.na(lon), mean_lon, lon),
+      surface_outdoor = surface_total-surface_covered,
+      surface_outdoor = if_else(surface_outdoor<0, 0, surface_outdoor)
+    ) %>%
+    select(
+      -l1, -l2, -l4, -surface_covered, -start_date, -end_date, -created_on,
+      -mean_lat, -mean_lon
+    )
+}
+
+l3_geolocations <- propiedades %>%
+  group_by(l3) %>%
+  summarise(
+    mean_lat=mean(lat, na.rm=T),
+    mean_lon=mean(lon, na.rm=T)
+  )
+
+propiedades_clean <- propiedades %>%
+  first_clean(l3_geolocations) %>%
+  filter(price>0, price<10000000) %>%
+  filter(lat > -35, lat < -33, lon > -58.55, lon < -57) %>%
+  dplyr::filter(is.na(surface_total) | surface_total < 700) %>%
+  distinct(lat, lon, rooms, bedrooms, bathrooms, surface_total, price, description, .keep_all = T)
+
+```
+
+```{r grafico_map}
+skim(propiedades_clean)
+
+propiedades_clean %>%
+  ggplot(aes(lon, lat, z = log(price))) +
+  stat_summary_hex(alpha = 0.8, bins = 70) +
+  scale_fill_viridis_c() +
+  labs(fill = "Mean price (log)", title = 'Precio por Hex')
+
+propiedades_clean %>%
+  ggplot(aes(lon, lat, color = log(price))) +
+  geom_point(alpha = 0.4) +
+  labs(fill = "Price (log)", title = 'Precio por Geolocalizacion')
+```
+
+Imputar los atributos rooms por la mediana y reemplazar valores extremos por el cuantil .999
+
+```{r room_impute}
+rooms_impute_values <- propiedades_clean %>%
+  select(contains('rooms')) %>%
+  summarise(
+    across(
+      everything(),
+      list(q99=~quantile(.x, .999, na.rm=T), median=~median(.x, na.rm=T))
+    )
+  )
+
+trunc_rooms <- function(.vec, .q, .na){
+
+  if_else(.vec>.q, .q, .vec) %>% replace_na(.na)
+
+}
+
+propiedades_clean <- propiedades_clean %>%
+  mutate(
+    rooms=trunc_rooms(rooms, rooms_impute_values$rooms_q99, rooms_impute_values$rooms_median),
+    bedrooms=trunc_rooms(bedrooms, rooms_impute_values$bedrooms_q99, rooms_impute_values$bedrooms_median),
+    bathrooms=trunc_rooms(bathrooms, rooms_impute_values$bathrooms_q99, rooms_impute_values$bathrooms_median)
+  )
+```
+
+Imputar l3
+
+```{r impute_l3}
+
+l3_lat_lon <- propiedades_clean %>% filter(!is.na(l3)) %>% select(lat, lon, l3)
+
+impute_l3 <- function(.df, .l3_lat_lon=l3_lat_lon, .max_dist = 7){
+  missing_l3 <- .df %>%
+    filter(is.na(l3)) %>%
+    select(lat, lon, id) %>%
+    geo_left_join(
+      .l3_lat_lon,
+      by = c('lat', 'lon'),
+      distance_col='distance',
+      max_dist = .max_dist,
+    ) %>%
+    group_by(id) %>%
+    slice_min(distance, with_ties = F) %>%
+    ungroup() %>%
+    select(id, l3.aux=l3)
+
+  .df %>%
+    left_join(missing_l3, by='id') %>%
+    mutate(l3=if_else(is.na(l3), l3.aux, l3)) %>%
+    select(-l3.aux)
+
+}
+
+propiedades_clean <- impute_l3(propiedades_clean)
+
+```
+
+Construir variables de entorno
+
+```{r entorno}
+.caba_files <- list.files('data/CABA')
+caba <- .caba_files %>%
+  map(~read_csv(paste0('data/CABA/', .x))) %>%
+  set_names(str_remove(.caba_files, '.csv'))
+
+caba$`escuelas-verdes` <- caba$`escuelas-verdes` %>% select(long, lat)
+
+caba$hospitales <- caba$hospitales %>%
+  mutate(WKT=str_remove_all(WKT, c('POINT \\(|\\)'))) %>%
+  separate(WKT, into = c('long','lat'), sep = ' ', convert=T)
+
+caba$`estaciones-de-metrobus` <- caba$`estaciones-de-metrobus` %>%
+  mutate(WKT=str_remove_all(WKT, c('POINT \\(|\\)'))) %>%
+  separate(WKT, into = c('long','lat'), sep = ' ', convert=T)
+
+caba$delitos_2019 <- caba$delitos_2019 %>% na.omit()
+caba$`locales-bailables` <- caba$`locales-bailables` %>% na.omit()
+
+.comunas_id <- caba$comunas %>%
+  transmute(id, barrio=str_split(barrios, '-')) %>%
+  unnest(barrio) %>%
+  transmute(id, barrio=str_to_lower(barrio) %>% str_trim())
+
+caba$ingresos <- caba$`encuesta-anual-hogares` %>%
+  group_by(id=comuna) %>%
+  summarise(median_ingreso=median(ingreso_per_capita_familiar)) %>%
+  left_join(.comunas_id, by='id') %>%
+  select(-id)
+
+min_distance <- function(.lon, .lat, .y){
+  .x <- c('lon'=.lon, 'lat'=.lat)
+  georange(.x, .y) %>% pluck('minimum')
+}
+
+count_distance <- function(.lon, .lat, .y, tresh=500){
+  .x <- c('lon'=.lon, 'lat'=.lat)
+  ds <- geodist(.x, .y)
+  sum(ds<tresh)
+}
+
+compute_distances <- function(df, caba_list=caba){
+  df %>%
+    transmute(
+      id,
+      # Counts
+      delitos=map2_dbl(lon, lat, ~count_distance(.x, .y, caba_list$delitos_2019)),
+      metrobus=map2_dbl(lon, lat, ~count_distance(.x, .y, caba_list$`estaciones-de-metrobus`)),
+      culturales=map2_dbl(lon, lat, ~count_distance(.x, .y, caba_list$`espacios-culturales`)),
+      bailables=map2_dbl(lon, lat, ~count_distance(.x, .y, caba_list$`locales-bailables`)),
+      universidades=map2_dbl(lon, lat, ~count_distance(.x, .y, caba_list$universidades)),
+      arbolado=map2_dbl(lon, lat, ~count_distance(.x, .y, caba$`arbolado-en-espacios-verdes`)),
+      wifi=map2_dbl(lon, lat, ~count_distance(.x, .y, caba$`sitios-de-wifi`)),
+      # Mins
+      subte=map2_dbl(lon, lat, ~min_distance(.x, .y, caba_list$`bocas-de-subte`)),
+      hospitales=map2_dbl(lon, lat, ~min_distance(.x, .y, caba_list$hospitales)),
+      embajadas=map2_dbl(lon, lat, ~min_distance(.x, .y, caba_list$embajadas)),
+      escuelas=map2_dbl(lon, lat, ~min_distance(.x, .y, caba_list$`escuelas-verdes`))
+    )
+}
+
+# Descomentar para calcular distancias nuevamente:
+# aux_distances_test <- propiedades_test %>%
+#   left_join(l3_geolocations, by = 'l3') %>%
+#   mutate(
+#     lat = if_else(is.na(lat), mean_lat, lat),
+#     lon = if_else(is.na(lon), mean_lon, lon)
+#   ) %>%
+#   select(lat, lon, id)
+#
+# distances <- compute_distances(propiedades_clean, caba)
+# distances_test <- compute_distances(aux_distances_test, caba)
+# beepr::beep()
+# skim(distances)
+
+# distances %>% write_csv('predictivos/distances.csv')
+# distances_test %>% write_csv('predictivos/distances_test.csv')
+distances <- read_csv('predictivos/distances.csv')
+distances_test <- read_csv('predictivos/distances_test.csv')
+
+# distances %>%
+#   select(where(is.numeric)) %>%
+#   cor() %>%
+#   corrplot::corrplot(type='lower', hclust.method = 'ward.D', diag = F, tl.srt = 10)
+
+```
+
+Agregar variables de entorno
+
+```{r add_entorno}
+propiedades_clean <- propiedades_clean %>%
+  mutate(
+    barrio=str_to_lower(l3),
+    price=log(price),
+    surface_total=log(surface_total)
+  ) %>%
+  left_join(distances %>% mutate(id=as.character(id)), by='id') %>%
+  left_join(caba$ingresos, by='barrio') %>%
+  left_join(caba$precio_m2_barrio, by='barrio') %>%
+  select(-l3)
+
+skim(propiedades_clean)
+# propiedades_clean %>% write_csv('predictivos/tp_final/full_train.csv')
+```
+
+Preparar test
+
+```{r}
+extract_surface <- function(.descr){
+
+  ms <- c('m2)', ' m2)', 'mt2)', ' mt2)', 'mts2)', ' mts2)', ' metros cuadrados)')
+  regex_surface <- paste0('[:graph:]+(?=', ms, collapse = '|')
+
+  home_feature <- c('comedor', 'sala', 'patio', 'terraza', 'habitación', 'dormitorio', 'baño', 'cocina',
+                    'living', 'balcón', 'cochera', 'lavadero', 'vestidor', 'recepción', 'recepción')
+  regex_home_feat <- paste0(home_feature, ' \\d+', collapse = '|')
+  regex_home_feat_de <- paste0(home_feature, ' de \\d+', collapse = '|')
+
+  .descr %>%
+    str_to_lower() %>%
+    str_remove_all('a \\d+ mts2 de|a \\d+ mts de| a \\d+ mts2| a \\d+ mts') %>%
+    str_remove_all(regex_home_feat) %>%
+    str_remove_all(regex_home_feat_de) %>%
+    str_extract_all(regex_surface) %>%
+    map(~str_replace(.x, '\\,', '\\.') %>% as.numeric()) %>%
+    map_dbl(max, na.rm=T)
+
+}
+
+prepare_propiedades <- function(.propiedades, l3_locations=l3_geolocations, room_imputes=rooms_impute_values,
+                                lat_lon=l3_lat_lon, .distances=distances_test, .ingresos = caba$ingresos,
+                                .precio_m2 = caba$precio_m2_barrio){
+
+  # Find surface_total in description
+  surface_description_aux <- .propiedades %>%
+    filter(is.na(surface_total)) %>%
+    distinct(description, rooms, bedrooms, bathrooms, .keep_all = T) %>%
+    transmute(id, description,
+              # m2=str_detect(description, 'm2|mts|mts2|metros cuadrados'),
+              surface_aux = extract_surface(description)) %>%
+    filter(surface_aux > 30, surface_aux < 700, surface_aux != 100) %>%
+    select(description, surface_aux)
+
+  surface_description <- .propiedades %>%
+    filter(is.na(surface_total)) %>%
+    select(id, description) %>%
+    nest(ids = id) %>%
+    left_join(surface_description_aux, by='description') %>%
+    filter(!is.na(surface_aux)) %>%
+    select(ids, surface_aux) %>%
+    unnest(ids)
+
+  .propiedades <- .propiedades %>%
+    left_join(surface_description, by = 'id') %>%
+    mutate(surface_total= if_else(is.na(surface_total), surface_aux, surface_total)) %>%
+    select(-surface_aux)
+
+    # Replace surface_total complex properties
+  .propiedades$surface_total[which(.propiedades$id %in% c(47024, 50142, 50207, 50218, 50219, 50220, 50221, 50239, 53511, 55569))] <-
+    c(90, 222, 307, 307, 307, 307, 307, 307, NA, NA)
+
+  # Primera limpieza
+  .propiedades_clean <- .propiedades %>%
+    mutate(
+      surface_total=if_else(is.na(surface_total), log(surface_covered), log(surface_total))
+    ) %>%
+    first_clean(l3_locations)
+
+  # Truncar e Imputar Rooms
+  .propiedades_clean <- .propiedades_clean %>%
+    mutate(
+      rooms=trunc_rooms(rooms, room_imputes$rooms_q99, room_imputes$rooms_median),
+      bedrooms=trunc_rooms(bedrooms, room_imputes$bedrooms_q99, room_imputes$bedrooms_median),
+      bathrooms=trunc_rooms(bathrooms, room_imputes$bathrooms_q99, room_imputes$bathrooms_median)
+    )
+
+  # Imputar l3
+  .propiedades_clean <- impute_l3(.propiedades_clean, .l3_lat_lon=lat_lon, .max_dist=1000)
+
+  # Agregar variables de entorno
+  l <- .propiedades_clean %>%
+    mutate(
+      barrio=str_to_lower(l3),
+      price=log(price)
+    ) %>%
+    left_join(.distances %>% mutate(id=as.character(id)), by='id') %>%
+    left_join(.ingresos, by='barrio') %>%
+    left_join(caba$precio_m2_barrio, by='barrio') %>%
+    select(-l3)
+
+  l
+
+  # list(
+  #   wo_na = l %>% filter(!is.na(surface_total)),
+  #   w_na = l %>% filter(is.na(surface_total))
+  # )
+
+}
+
+propiedades_test <- prepare_propiedades(test)
+skim(propiedades_test)
+
+```
+
+```{r replace_no_caba}
+
+replace_nocaba <- function(df){
+  tpfinal_nocaba <- read_csv('predictivos/entregas/tpfinal_nocaba.csv') %>%
+    mutate(id= as.character(id))
+
+  df %>%
+    rename(price_1=price) %>%
+    left_join(tpfinal_nocaba %>% rename(price_nocaba=price), by='id') %>%
+    transmute(
+      id, price = if_else(is.na(price_nocaba), price_1, price_nocaba)
+    )
+}
+
+```

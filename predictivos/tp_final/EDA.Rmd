@@ -1,0 +1,235 @@
+---
+title: "**ESPECIALIZACIÓN EN  MÉTODOS CUANTITATIVOS PARA LA GESTIÓN Y ANÁLISIS DE DATOS EN ORGANIZACIONES**"
+subtitle: "**E72.1.01 – FUNDAMENTOS DE MÉTODOS ANALÍTICOS PREDICTIVOS**"
+levelwork: "**PREDICCIÓN DEL PRECIO DE PROPIEDADES**"
+subsubtitle: "**Trabajo Final**"
+output: 
+  pdf_document:
+    template: ../../md_formats/predictivo_template.tex
+    fig_height: 4
+    # keep_tex: true
+    highlight: default
+    includes:
+      in_header: ../../md_formats/predictivo.tex
+urlcolor: blue
+---
+
+\
+
+\vskip 3.5em
+
+## Docente: Roberto Abalde, Mónica Cantoni {.unlisted .unnumbered}
+## Estudiante: Rodrigo Serrano {.unlisted .unnumbered}
+
+\newpage
+
+En el presente trabajo se exponen las tareas realizadas para resolver el problema de [predicción del precio de las propiedades de CABA](https://www.kaggle.com/c/fmap-2021-prediccion-del-precio-de-propiedades/overview). Se entrenaron dos modelos: Random Forest y Regresión Lineal. Dichos modelos fueron ensamblados para obtener una única estimación. En total se realizaron 12 entregas de las cuales en 3 hubo una disminución significativa en el RMSE para la muestra seleccionada en el *public leaderboard*. 
+
+La tarea de limpieza de los datos y entrenamiento del modelo se realizó en R utilizando los siguientes paquetes
+
+* `tidyverse` para la manipulación de los datos
+* `tidymodels` para el entrenamiento de los modelos predictivos
+* `tidytext` y `textrecipes` para las tareas de *text minning*
+* `geodist` para el calculo de las variables que involucran distancias entre coordenadas geográficas
+* `fuzzyjoin` para unir datos mediante coordenadas geográficas
+* `glmnet` para el entrenamiento del modelo lineal generalizado
+* `ranger` para el entrenamiento del modelo Random Forest
+* `stacks` para el ensamble de los modelos
+
+El código puede ser consultado en el repositorio:
+\
+EDA: <http://www.github.com/rodserr/uba-classroom/predictivos/first_EDA.Rmd>
+\
+Modelos de entrenamiento: <http://www.github.com/rodserr/uba-classroom/predictivos/modelado.Rmd>
+
+# Primera predicción
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F, warning = F, message = F)
+
+library(tidyverse)
+library(skimr)
+library(scales)
+library(tidymodels)
+library(tidytext)
+library(textrecipes)
+library(geodist)
+library(stacks)
+library(fuzzyjoin)
+
+thematic::thematic_rmd(
+  bg = "#ffffff", fg = '#4a4a4a', accent = '#e9832d', font = 'Roboto', qualitative = c("#e9832d", "#04a494", "#4a4a4a", "#ffffff")
+)
+
+propiedades <- readxl::read_excel('data/final_predictivos/propiedades_train.xlsx')
+test <- readxl::read_excel('data/final_predictivos/propiedades_test.xlsx')
+
+```
+
+Lo primero que haremos es describir los datos de entrenamiento y test
+
+```{r skim_propiedades, include=T}
+skim_without_charts(propiedades, .data_name = 'Train') %>% select(-numeric.mean, -numeric.sd)
+```
+
+\
+\
+
+```{r skim_propiedades_test, include=T}
+skim_without_charts(test, .data_name = 'Test') %>% select(-numeric.mean, -numeric.sd)
+```
+
+Se puede observar que:
+
+* l1 y l2 tienen un único valor, l4 tiene 94% valores NA
+* Las variables más importantes para la predicción (rooms, surface_total, lat, lon, etc.) tienen valores NA
+* Hay propiedades fuera de las coordenadas de CABA
+* Existen valores extremos en la mayoría de las variables numéricas
+* Hay propiedades con precio = 0
+* Hay problemas para utilizar surface_total como variable predictora porque test tiene ~40% NA
+* surface_covered tiene +30% NA en test y probablemente esta correlacionada con surface_total
+
+Veamos la distribución del precio
+
+\
+
+```{r histogram_precio}
+propiedades %>%
+  filter(price<quantile(price, .98)) %>%
+  ggplot(aes(x=price)) +
+  geom_histogram() +
+  scale_x_continuous(labels = label_dollar(scale=1/1000, suffix = ' k')) +
+  labs(title='Distribución del Precio', subtitle= 'Se excluyen valores > percentil 98')
+```
+
+En base a lo observado se realiza la primera limpieza:
+
+* Imputamos lat y lon por la media de l3 (barrio)
+* filtramos 0 < price < percentil 98
+* Viviendas fuera de CABA no se utilizarán para entrenar: filtramos -35 < lat < -33 y -58.55 < lon < -57
+* Removemos columnas: l1, l2, l4, surface_covered, start_date, end_date, created_on
+* Removemos duplicados por el concatenado de las variables: lat, lon, rooms, bedrooms, bathrooms, surface_total, price
+* Imputar los atributos rooms, bedrooms y bathrooms por la mediana y reemplazar valores extremos por el percentil .999
+* Imputar l3 por la propiedad más cercana en cuanto a lat-lon (para esto se utiliza el paquete `fuzzyjoin`)
+
+Observamos la relación de las variables predictoras con el precio
+
+\
+
+```{r read_prop_clean}
+propiedades_clean <- read_csv('predictivos/tp_final/full_train.csv')
+```
+
+\
+
+```{r}
+propiedades_clean %>%
+  select(id, price, contains('rooms'), surface_total, lat, lon) %>% 
+  pivot_longer(-c('id', 'price')) %>% 
+  na.omit() %>% 
+  ggplot(aes(x = value, y = price)) +
+  geom_point(alpha=.3) +
+  geom_smooth(method='lm') +
+  facet_wrap(~name, scales = 'free') +
+  labs(title = 'Variables Predictoras (numéricas) vs Log Precio')
+```
+
+`surface_total` es la variable que tiene mayor correlación con el precio, seguida por las variables discretas `rooms`, `bedrooms` y `bathrooms`. `lat` y `lon` no tienen correlación con el precio por si solas, sin embargo al ver el mapa de la ciudad observamos que la coordenada geográfica si representa información importante.
+
+```{r grafico_map}
+propiedades_clean %>%
+  ggplot(aes(lon, lat, z = price)) +
+  stat_summary_hex(alpha = .9, bins = 50) +
+  scale_fill_gradient2(midpoint = 12, low = "#4a4a4a", mid = "#04a494", high = "#e9832d") +
+  labs(fill = "Log del precio medio", title = 'Precio por Hex (Coordenada Geográfica)')
+```
+
+\
+
+```{r impute_l3}
+propiedades_clean %>%
+  mutate(barrio = factor(barrio)) %>%
+  ggplot(aes(log(price), reorder(barrio, log(price)))) +
+  geom_boxplot() +
+  labs(y = 'Barrio', title = 'Distribución del Precio por Barrio') +
+  theme(axis.text.y = element_text(size = 6))
+```
+
+El barrio es una variable importante, sin embargo, para capitalizar la información de la ubicación de la propiedad se utilizan datos externos extraídos de <https://data.buenosaires.gob.ar/>. Las nuevas variables que se calculan son:
+
+* Cantidad de **delitos** en 500 metros alrededor de la propiedad
+* Cantidad de **paradas de metrobus** en 500 metros alrededor de la propiedad
+* Cantidad de **locales bailables** en 500 metros alrededor de la propiedad
+* Cantidad de **facultades de universidades** en 500 metros alrededor de la propiedad
+* Cantidad de **espacios culturales** en 500 metros alrededor de la propiedad
+* Distancia a la **boca de subte** mas cercano
+* Distancia al **hospital** mas cercano
+* Distancia a la **embajada** mas cercana
+* Distancia a la **escuela** mas cercana
+* Ingreso medio por barrio
+
+Se utiliza un modelo de **Random Forest** implementado por el paquete `ranger`, se optimiza la cantidad de predictores aleatorios por árbol entre 5 a 21, arrojando como mejor parámetro el valor 12, se establece el numero de arboles en 1000 y la mínima cantidad de datos para dividir un nodo en 5.
+
+También se entrena un **modelo lineal generalizado** implementado en el paquete `glmnet`, se optimiza el parámetro penalty el cual permite anular o darle menor/mayor peso a las variables predictoras. Para este modelo se utiliza text minning para extraer información del campo `description`, los pasos que se aplican son los siguientes:
+
+1. Remover dígitos y caracteres especiales
+2. Convertir palabras a minúsculas
+3. Tokenizar el texto en *unigrams*
+4. Remover stopwords
+5. Retener los 200 tokens con mayor frecuencia
+6. Calcular la frecuencia del token en cada descripción
+
+Para ambos modelos (Random Forest y Linear Model) se realizan los siguientes pasos:
+
+1. Imputar `surface_total` con un modelo knn utilizando las variables `rooms`, `bathrooms` y `bedrooms`
+2. Agrupar los barrios con menos de 1% de frecuencia en una sola categoría "otros"
+3. Convertir a dummy la variable categórica `barrio`
+
+Para el modelo lineal se normalizan todas las variables predictoras
+
+Se obtuvo un **RMSE de 203,843**
+
+# Primera mejora
+
+Al ser `surface_total` la variable con mayor peso para el modelo, nos enfocaremos en mejorar la imputación de los valores perdidos. Se realizan las siguientes tareas:
+
+* Existen 18 propiedades en `test` con coordenadas fuera de CABA, estas se identifican y se estiman manualmente, ya que el modelo al estar entrenado con datos de CABA arroja un error muy alto para estas propiedades
+
+* Se extrae el precio por metro cuadrado para cada barrio de la pagina web [mudafy](https://mudafy.com.ar/mapa?utm_landingpage=https:%2F%2Fmudafy.com.ar%2Fmapa&utm_source=google&utm_medium=cpc&utm_campaign=AR_SEL_SEARCH_INTENT&utm_adgroup=0.0-DSA&utm_keyword=&utm_match=b&utm_content=471709085467&gclid=CjwKCAjw64eJBhAGEiwABr9o2JO-bXHnAecoW7IjqM5GR6MLdzcBYH6XT7SvI-IDQcVkIsMBQ9tm4RoCeKIQAvD_BwE), este valor se multiplica por la variable `surface_total` para tener una nueva variable: `precio_m2_ext`
+
+* Al modelo knn de imputación de `surface_total` se incluyen las variables `lat` y `lon`
+
+* Se utilizan sólo las variables más importantes de distancia: embajadas y delitos
+
+* Existen algunos valores anómalos en la variable `surface_total` que puede deberse a que se reflejan la superficie del complejo habitacional, edificio u urbanización en vez de las dimensiones de la propoiedad Específicamente en la data de test existen 10 propiedades con `surface_total` > 700. Se tratan de la siguiente manera:
+ + Para la data de entrenamiento se excluyen las propiedades cuyo `surface_total` > 700
+ + Para la data de test se reemplaza los 10 valores por los correctos extraídos del campo `description`
+
+* Se le aplica una transformación logarítmica a la variable `surface_total`. 
+
+Se obtuvo un **RMSE de 174,929**
+
+# Segunda mejora
+
+* Se amplia el margen de exclusión de los precios extremos. En las entregas anteriores se excluían del modelo las propiedades cuyos precios fuesen mayores al percentil 98 lo que equivale a 1,450,000 USD. Esto era un error ya que el modelo no era capaz de generalizar los precios para estas propiedades, además al ser propiedades con precios tan elevados producían un error mayor en comparación a las propiedades más económicas. Se amplió el margen para sólo excluir las propiedades con precios mayores a 10 Millones de USD. Esta modificación también disminuye la diferencia entre el RMSE de validation con test
+
+* Se incluyen las variables:
+ + Cantidad de **árboles** en 500 metros alrededor de la propiedad
+ + Cantidad de **puntos de conexión wifi** en 500 metros alrededor de la propiedad
+ 
+Se obtuvo un **RMSE de 118,475**
+
+# Tercera mejora
+
+* Se sigue en búsqueda de mejorar la imputación de la variable `surface_total`, esta vez se aplican técnicas de text minning a la variable `description` para extraer el valor de la superficie total (aprox. 1000 casos). Además, imputamos -en los casos posibles- por el valor `surface_covered` (aprox. 600 casos). Con estas dos técnicas los valores perdidos para la variable `surface_total` en la data test disminuyen del 39% al 31%. Luego se sigue aplicando el modelo knn en el resto de valores perdidos.
+
+* Se calcula una nueva variable: `surface_outdoor` = `surface_total`-`surface_covered`. En este caso también se imputa la variable `surface_covered` con un modelo knn con las variables rooms, bedrooms, bathrooms, lat, lon y surface_total
+
+Se obtuvo un **RMSE de 107,440**
+
+# Entrega Final
+
+Para la última entrega se aplican técnicas de text minning para extrae el precio del campo `title` en la data de test. Con esta técnica se encuentran 3,125 propiedades cuyos precios aparecen publicados en la variable `title` 
+
+Se obtuvo un **RMSE de 96,237**
+
