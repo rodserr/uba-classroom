@@ -2,7 +2,7 @@
 title: "**ESPECIALIZACIÓN EN  MÉTODOS CUANTITATIVOS PARA LA GESTIÓN Y ANÁLISIS DE DATOS EN ORGANIZACIONES**"
 subtitle: "**E72.1.01 – FUNDAMENTOS DE MÉTODOS ANALÍTICOS PREDICTIVOS**"
 levelwork: "**PREDICCIÓN DEL PRECIO DE PROPIEDADES**"
-subsubtitle: "**Trabajo Final**"
+subsubtitle: "**TRABAJO FINAL**"
 output: 
   pdf_document:
     template: ../../md_formats/predictivo_template.tex
@@ -40,7 +40,7 @@ El código puede ser consultado en el repositorio:
 \
 EDA: <http://www.github.com/rodserr/uba-classroom/predictivos/first_EDA.Rmd>
 \
-Modelos de entrenamiento: <http://www.github.com/rodserr/uba-classroom/predictivos/modelado.Rmd>
+Modelos de entrenamiento: <http://www.github.com/rodserr/uba-classroom/predictivos/tp_final/entrenamiento.R>
 
 # Primera predicción
 
@@ -149,9 +149,9 @@ propiedades_clean %>%
 ```{r impute_l3}
 propiedades_clean %>%
   mutate(barrio = factor(barrio)) %>%
-  ggplot(aes(log(price), reorder(barrio, log(price)))) +
+  ggplot(aes(price, reorder(barrio, price))) +
   geom_boxplot() +
-  labs(y = 'Barrio', title = 'Distribución del Precio por Barrio') +
+  labs(y = 'Barrio', title = 'Distribución del Precio por Barrio', x = 'log(Price)') +
   theme(axis.text.y = element_text(size = 6))
 ```
 
@@ -231,5 +231,5 @@ Se obtuvo un **RMSE de 107,440**
 
 Para la última entrega se aplican técnicas de text minning para extrae el precio del campo `title` en la data de test. Con esta técnica se encuentran 3,125 propiedades cuyos precios aparecen publicados en la variable `title` 
 
-Se obtuvo un **RMSE de 96,237**
+Se obtuvo un **RMSE de 93,405**
 

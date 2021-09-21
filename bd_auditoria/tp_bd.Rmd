@@ -1,0 +1,213 @@
+---
+title: "Métodos Cuantitativos para la Gestión y Análisis de Datos en Organizaciones"
+subtitle: "Gestión y Procesamiento de Base de Datos y Nociones De Auditoría No Presencial"
+author: "Rodrigo Serrano"
+date: "Septiembre de 2021"
+output: 
+  pdf_document:
+    fig_height: 4
+    highlight: default
+    includes:
+      in_header: ../md_formats/multivariado.tex
+urlcolor: blue
+---
+
+\
+
+## Consultas y Análisis de Datos {.unlisted .unnumbered}
+
+## Docentes: Dra. Melisa Elfenbaum {.unlisted .unnumbered}
+
+\newpage
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+source('bd_auditoria/script_tp_bd.r')
+library(printr)
+
+```
+
+## 1) Realizar las consultas para obtener la siguiente información
+
+- a. Armar seis grupos etarios y calcular la cantidad de personas que tienen créditos para vivienda, créditos personales y el total de personas que se incluyeron en el conjunto de datos por grupo.
+
+```{r}
+sqldf("
+SELECT 
+ CASE 
+  WHEN age >= 70 THEN '[70-100)'
+  WHEN age >= 60 THEN '[60-70)'
+  WHEN age >= 50 THEN '[50-60)'
+  WHEN age >= 40 THEN '[40-50)'
+  WHEN age >= 30 THEN '[30-40)'
+  ELSE '[18-30)'
+  END AS age_group,
+ SUM(housing) AS n_housing_loan,
+ SUM(loan) AS n_personal_loan,
+ COUNT() AS n_customer
+FROM bank_datos
+GROUP BY age_group
+")
+```
+
+La mayor cantidad de clientes se encuentra entre los 30 y 50 años de edad, grupo donde también se concentra la mayor cantidad de créditos para vivienda y personales. Alrededor del 60% de los clientes de cada grupo etario tienen créditos de vivienda y 15% créditos personales, disminuyendo considerablemente en los dos grupos de mayor edad.
+
+- b. De las personas que tienen créditos personales o para viviendas, calcular el balance promedio, máximo y mínimo para los que tienen algún crédito en default y los que no.
+
+```{r}
+sqldf("
+SELECT 
+ CASE 
+  WHEN id_default == 1 THEN 'yes'
+  ELSE 'no' 
+  END as is_default,
+ AVG(balance) as avg_balance,
+ MIN(balance) as min_balance,
+ MAX(balance) as max_balance
+FROM bank_datos
+WHERE loan == 1 OR housing == 1
+GROUP BY is_default
+")
+```
+
+Como es de esperar el balance promedio, máximo y mínimo es menor en clientes con créditos en mora. El balance podría ser una variable importante que defina la otorgación de créditos.
+
+- c. Para cada categoría de trabajo obtener el balance promedio, la suma de créditos personales e hipotecarios y la cantidad de créditos en default y sin default.
+
+```{r}
+sqldf("
+SELECT 
+ j.job,
+ AVG(balance) as avg_balance,
+ SUM(loan) as personal_loan_count,
+ SUM(housing) as housing_loan_count,
+ sum(id_default) as default_yes_count,
+ sum(id_default LIKE 0) as default_no_count
+FROM bank_datos bd
+LEFT JOIN bank_job as j on bd.id_job == j.id_job
+GROUP BY j.job
+ORDER BY avg_balance
+")
+
+```
+
+La mayor cantidad de clientes en mora provienen de trabajos profesionales como "blue-collar" o "management", aunque en proporción la categoría "entrepreneur" es la de mayor cantidad de créditos en mora con 3.7%. Los estudiantes y desempleados son los que tienen menor cantidad de créditos junto con amas de casa y pensionados.
+
+- d. En cuanto a la campaña actual de marketing, obtener la duración promedio de la última llamada y la cantidad de contactos realizados por cada tipo de contacto, mensualmente y en total.
+
+```{r}
+sqldf("
+SELECT 
+ 0 as month,
+ con.contact,
+ AVG(duration) as avg_duration,
+ SUM(campaign) as contact_count
+FROM bank_datos bd
+LEFT JOIN bank_contact con on bd.id_contact == con.id_contact
+GROUP BY bd.id_contact
+
+UNION
+
+SELECT 
+ CAST(month AS int) as month,
+ con.contact,
+ AVG(duration) as avg_duration,
+ SUM(campaign) as contact_count
+FROM bank_datos bd
+LEFT JOIN bank_contact con on bd.id_contact == con.id_contact
+GROUP BY bd.id_contact, month
+order by month
+")
+
+```
+
+La mayor cantidad de contactos en la campaña actual se realizaron por celular (63%) mientras que hay una gran catidad de contactos sin definir (29%). En general la duración de la llamada se mantiene constante para todos los tipos de contacto. En los meses de Septiembre y Octubre las llamadas por teléfono fijo tienen una mayor duración promedio, sin embargo, esto puede deberse a que la cantidad de contactos en esos meses disminuyen considerablemente, por lo que las duraciones extremas pueden estar sesgando la variable en esos meses. La mayor cantidad de contactos por celular se ejecutaron en Julio y Agosto, meses de vacaciones escolares.
+
+- e. Obtener para cada grupo etario el porcentaje de cada resultado de la campaña de marketing anterior, ordenando por los grupos que tuvieron éxito.
+
+```{r}
+sqldf("
+SELECT 
+  CASE
+   WHEN age >= 70 THEN '[70-100)'
+   WHEN age >= 60 THEN '[60-70)'
+   WHEN age >= 50 THEN '[50-60)'
+   WHEN age >= 40 THEN '[40-50)'
+   WHEN age >= 30 THEN '[30-40)'
+   ELSE '[18-30)'
+  END AS age_group,
+  ROUND( CAST( SUM( id_previos_outcome LIKE 1) as real)/COUNT()*100, 1) as failure,
+  ROUND( CAST( SUM( id_previos_outcome LIKE 2) as real)/COUNT()*100, 1) as success,
+  ROUND( CAST( SUM( id_previos_outcome LIKE 3) as real)/COUNT()*100, 1) as other,
+  ROUND( CAST( SUM( id_previos_outcome LIKE 4) as real)/COUNT()*100, 1) as unknown
+FROM  bank_datos
+GROUP BY age_group
+ORDER BY success DESC
+")
+```
+
+Aproximadamente el 80% de los casos de la campaña anterior se desconoce para todos los grupos. De los resultados que se conocen la tasa de exito es mayor en los clientes mayores a 60 años, seguido por los clientes menores a 30 años
+
+- f. Para los tres grupos etarios que tuvieron más éxito en la campaña anterior, obtener la proporción de los que se esperan que realicen depósitos y los que no, sobre los casos exitosos.
+
+```{r}
+sqldf("
+SELECT 
+ CASE
+   WHEN age >= 70 THEN '[70-100)'
+   WHEN age >= 60 THEN '[60-70)'
+   WHEN age >= 50 THEN '[50-60)'
+   WHEN age >= 40 THEN '[40-50)'
+   WHEN age >= 30 THEN '[30-40)'
+   ELSE '[18-30)'
+ END AS age_group,
+ ROUND( CAST( SUM( id_previos_outcome LIKE 2) as real)/COUNT()*100, 1) as previous_success_rate, 
+ ROUND( CAST( SUM( term_deposit LIKE 1 and id_previos_outcome LIKE 2) as real)/
+   SUM(id_previos_outcome LIKE 2)*100, 1) as si_deposito,
+ ROUND( CAST( SUM( term_deposit LIKE 0 and id_previos_outcome LIKE 2) as real)/
+   SUM(id_previos_outcome LIKE 2)*100, 1) as no_deposito
+FROM bank_datos
+GROUP BY age_group
+ORDER BY previous_success_rate DESC
+LIMIT 3
+")
+```
+
+En los tres grupos se espera que aproximadamente el 70% de los casos sean exitosos. Siendo el de mayor exito el grupo de clientes entre 60 y 70 años 
+
+## 2) Escribir dos consultas SQL adicionales (con los resultados correspondientes) que destaquen información relevante contenida en el set de datos.
+
+```{r}
+sqldf("
+SELECT 
+ edu.education,
+ AVG(balance) as avg_balance,
+ ROUND( CAST( SUM( loan LIKE 1) as real)/COUNT()*100, 1) as personal_loan_perct,
+ ROUND( CAST( SUM( housing LIKE 1) as real)/COUNT()*100, 1) as housing_loan_perct,
+ ROUND( CAST( SUM( id_default LIKE 1) as real)/COUNT()*100, 1) as default_yes_perct,
+ ROUND( CAST( SUM( term_deposit LIKE 1) as real)/COUNT()*100, 1) as convertion_rate
+FROM bank_datos bd
+LEFT JOIN bank_education as edu on bd.id_education == edu.id_education
+GROUP BY edu.education
+")
+```
+
+Se puede observar que la tasa de conversión es mayor en clientes con mayor nivel educativo. Los créditos no varian mucho en función al nivel educativo. La tasa de default es mayor en clientes con menor nivel educativo
+
+```{r}
+sqldf("
+SELECT 
+ term_deposit,
+ AVG(balance) as avg_balance,
+ AVG(duration) as avg_duration,
+ CAST(SUM(loan) as real)/COUNT() as personal_loan_perct,
+ CAST(SUM(housing)as real)/COUNT() as housing_loan_perct,
+ ROUND( CAST( SUM( id_default) as real)/COUNT()*100, 1) as default_yes_perct
+FROM bank_datos bd
+GROUP BY term_deposit
+")
+```
+
+El balance promedio es 38% más elevado en clientes que convirtieron. Estos clientes también tienen una duración promedio de llamada más elevada y menos créditos otorgados. Su tasa de default es casi la mitad de los clientes que no convirtieron
+
+

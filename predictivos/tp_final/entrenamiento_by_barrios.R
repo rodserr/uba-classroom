@@ -12,10 +12,16 @@ library(ranger)
 library(glmnet)
 library(vip)
 doParallel::registerDoParallel(cores = 4)
+
 # Leer datos----
-propiedades_clean <- read_csv('predictivos/tp_final/full_train.csv')
-propiedades_test <- read_csv('predictivos/tp_final/test_clean.csv')
+train_clean <- read_csv('predictivos/tp_final/full_train.csv')
+test_clean <- read_csv('predictivos/tp_final/test_clean.csv')
 no_CABA_path <- 'predictivos/tp_final/tpfinal_nocaba.csv'
+
+top_barrios <- c('puerto madero', 'recoleta', 'belgrano', 'palermo')
+propiedades_clean <- train_clean %>% filter(barrio %in% top_barrios, bedrooms < 4)
+propiedades_test <- test_clean %>% filter(barrio %in% top_barrios, bedrooms < 4)
+skimr::skim(train_clean)
 
 # helper functions----
 
@@ -64,7 +70,7 @@ check_model <- function(.model, .validation=validation){
   
 }
 
-replace_nocaba <- function(df, .path = noCABA_path){
+replace_nocaba <- function(df, .path = no_CABA_path){
   tpfinal_nocaba <- read_csv(.path) %>%
     mutate(id= as.character(id))
   
@@ -214,7 +220,7 @@ check_model(final_model$blended_fit)
 # Prediccion Base
 test_preds <- propiedades_test %>%
   bind_cols(predict(final_model$blended_fit_fulldata, .)) %>%
-  transmute(id, price=exp(.pred)) %>% 
+  transmute(id = as.character(id), price=exp(.pred)) %>% 
   replace_nocaba()
 
 # Encontrar Precio en title
@@ -231,6 +237,6 @@ price_finder <- propiedades_test %>%
 # Prediccion Final
 test_preds %>%
   mutate(id = as.character(id)) %>%
-  left_join(price_finder %>% select(id, title_price), by = 'id') %>%
+  left_join(price_finder %>% transmute(id = as.character(id), title_price), by = 'id') %>%
   transmute(id, price = if_else(is.na(title_price), price, title_price)) %>%
-  write_csv("predictivos/entregas/tpfinal_entrega.csv")
+  write_csv("predictivos/entregas/tpfinal_entrega_top_barrios_3bedrooms.csv")

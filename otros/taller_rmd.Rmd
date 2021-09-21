@@ -1,0 +1,51 @@
+---
+title: "Presentation Ninja"
+subtitle: "⚔<br/>with xaringan"
+author: "Yihui Xie"
+institute: "RStudio, PBC"
+date: "2016/12/12 (updated: `r Sys.Date()`)"
+output:
+  xaringan::moon_reader:
+    css: [default]
+    lib_dir: libs
+    nature:
+      highlightStyle: github
+      highlightLines: true
+      countIncrementalSlides: false
+---
+
+# Components
+
+.pull-left[
+#### Metadata: YAML
+
+```yaml
+---
+title: "A Cool Presentation"
+output:
+  xaringan::moon_reader:
+    yolo: true
+---
+```
+
+#### Code: R, Python, C, julia, etc.
+
+```{r eval=T}
+head(mtcars, n = 3)
+```
+
+]
+
+.pull-rigth[
+#### Text: Markdown
+
+```
+[Mail merge example](https://rmarkdown.rstudio.com/articles_mail_merge.html)
+```
+[Mail merge example](https://rmarkdown.rstudio.com/articles_mail_merge.html)
+]
+
+---
+
+
+
