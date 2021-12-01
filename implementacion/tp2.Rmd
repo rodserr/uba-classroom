@@ -1,0 +1,434 @@
+---
+title: "**ESPECIALIZACIÓN EN  MÉTODOS CUANTITATIVOS PARA LA GESTIÓN Y ANÁLISIS DE DATOS EN ORGANIZACIONES**"
+subtitle: "**Trabajo práctico Nr. 2**"
+author: "Rodrigo Serrano"
+date: "Octubre de 2021"
+output: 
+  pdf_document:
+    fig_height: 4
+    highlight: default
+    includes:
+      in_header: ../md_formats/multivariado.tex
+urlcolor: blue
+---
+
+\
+
+\vskip 3.5em
+
+## Implementación de modelos de aprendizaje automático {.unlisted .unnumbered}
+
+## Docente: Facundo Santiago, Yamila Adriana Zakhem {.unlisted .unnumbered}
+
+\newpage
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+thematic::thematic_rmd(
+  bg = "#ffffff", fg = '#4a4a4a', accent = '#e9832d', font = 'Roboto', 
+  qualitative = c("#e9832d", "#04a494", "#4a4a4a", "#ffffff")
+)
+
+thematic::thematic_on(
+  bg = "#ffffff", fg = '#4a4a4a', accent = '#e9832d', font = 'Roboto', 
+  qualitative = c("#e9832d", "#04a494", "#4a4a4a", "skyblue")
+)
+```
+
+## Contexto
+
+-   Karvana ofrece un proceso auto-gestionado de compra y venta de autos vía web
+-   Se quiere incluir una nueva funcionalidad que consiste en permitir a los usuarios estimar el precio de compra de su automóvil
+-   Predicciones mas costosas que la verdadera provoca usuarios desilusionados porque no lograremos comprar el auto
+-   Predicciones mas económicas que la verdadera provoca usuarios descontentos con nuestras ofertas de compra y quizás elijan otro revendedor
+
+## Consigna
+
+-   Comentar como medir la performance del modelo en el contexto de negocio.
+
+-   Entrenar al menos 2 modelos.
+
+-   Realizar al menos una búsqueda de hiperparámetros.
+
+-   Utilizar alguna de las técnicas vistas en clase para realizar análisis de errores sobre ambos modelos.
+
+-   Responder:
+
+    -   ¿Qué tipo de errores comete cada uno?
+
+    -   ¿Qué modelo debería ser implementado y porqué?.
+
+    -   ¿Qué tipo de errores son mejores en el contexto del negocio?
+
+    -   ¿Cómo preferiría que estén distribuidos?
+
+    -   ¿Es el modelo con mejor métrica definitivamente el ganador?
+
+## Librerías a utilizar
+
+```{r message=FALSE}
+library(tidyverse) # Framework para manipulacion de datos
+library(tidymodels) # Framework para entrenamiento de modelos predictivos
+library(patchwork) # Composition of multiple ggplots
+
+automobile <- read_csv('data/automobile.csv') %>% janitor::clean_names()
+```
+
+## Análisis descriptivo
+
+```{r}
+# Gráfico de Variables Continuas
+automobile %>% 
+  select(where(is.double)) %>% 
+  pivot_longer(-lnprice) %>% 
+  ggplot(aes(x=lnprice, y=value)) +
+  geom_point(alpha=.5) +
+  geom_smooth(method = 'loess', formula = y~x) +
+  facet_wrap(~name, scales = 'free_y') +
+  labs(title = 'Relacion entre Precio y Predictores numéricos',
+       x = 'Log Natural del Precio')
+
+# Seleccionamos solo variables categoricas y Pivoteamos para graficar
+cat_variables <- automobile %>% 
+  select(where(is.character), lnprice) %>% 
+  pivot_longer(-lnprice, names_to = 'variable', values_to = 'category')
+
+# Calculamos Proporciones por categoria
+categorical_proportions <- cat_variables %>% 
+  count(variable, category) %>% 
+  group_by(variable) %>% 
+  mutate(proportion = round(n/sum(n)*100, 0)) %>% 
+  ungroup()
+
+# Renombramos variable para mostrar la proporcion por categoria
+cat_variables <- cat_variables %>% 
+  left_join(categorical_proportions, by = c('variable', 'category')) %>% 
+  mutate(category = glue::glue('{category} - {proportion}%'))
+
+# Grafico de Maker
+cat_variables %>% 
+  filter(variable == 'make') %>%
+  ggplot(aes(x=lnprice, y=reorder(category, lnprice))) +
+  geom_boxplot() +
+  labs(title = 'Distribución del Precio por Marca', x = 'Log Natural del Precio',
+       y = 'Marca - Proporción %')
+
+# Grafico de resto de variables categoricas
+cat_variables %>%
+  filter(variable != 'make') %>% 
+  ggplot(aes(x=lnprice, y=reorder(category, lnprice))) +
+  geom_boxplot() +
+  facet_wrap(~variable, scales = 'free') +
+  labs(title = 'Distribución del Precio en predictores categóricos', 
+       x = 'Log Natural del Precio', y = 'Categoría - Proporción %')
+
+```
+
+Excluiremos algunas variables en base a los gráficos mostrados:
+
+-   `engine_locaction` ya que el 99% de los datos pertenece a una sola categoría
+
+-   `num_of_doors` ya que no aporta variación en el precio, y existen otras variables que aportan información similar como `body_style`.
+
+También agruparemos las categorías con menos de 10% de participación en la variable para disminuir los tiempos de entrenamiento.
+
+Agrupamos la variable Marca en los niveles: *Luxury*, *Executive*, *Mid-class* y *Low-cost* en función de la media del precio de cada marca.
+
+```{r}
+# Calculamos precio medio por Maker 
+means_by_maker <- automobile %>% 
+  group_by(make) %>% 
+  summarise(maker_mean_price = mean(lnprice))
+
+automobile_clean <- automobile %>% 
+  left_join(means_by_maker, by = 'make') %>% 
+  mutate(
+    maker_target = case_when(
+      maker_mean_price > 1 ~ 'luxury',
+      maker_mean_price > 0 ~ 'executive',
+      maker_mean_price > -.5 ~ 'midclass',
+      T ~ 'lowcost'
+    )
+  ) %>% 
+  select(-make, -maker_mean_price, -engine_location, -num_of_doors)
+```
+
+## Elección de la métrica de Error
+
+```{r}
+automobile %>% 
+  mutate(price = exp(lnprice)) %>% 
+  select(`Precio 0000s` = price, `Logaritmo del Precio` = lnprice) %>% 
+  rownames_to_column('id') %>% 
+  pivot_longer(-id) %>% 
+  ggplot(aes(x=value)) +
+  geom_density() +
+  facet_wrap(~name, scales = 'free') +
+  labs(title = 'Distribución del Precio', x = '', y = "Densidad")
+```
+
+Al aplicar una transformación logarítmica al precio solventamos la presencia de posibles valores atípicos, tal como evidencia el gráfico de densidad. Por esto se utiliza el RMSE como métrica de error.
+
+El contexto no proporciona una línea base de error. Sin embargo, podemos obtener una base si asumimos la media del precio como predicción, esto nos da un error base de 1. Si asumimos que la variable objetivo `lnprice` esta expresada en ln(precio/10000) de USD, la base de error equivaldría a 27,183 USD.
+
+```{r}
+automobile %>% 
+  transmute(lnprice, mean_lnprice = mean(lnprice)) %>% 
+  rmse(truth = lnprice, estimate = mean_lnprice)
+```
+
+## Entrenamiento
+
+### Pre-procesamiento
+
+Implementaremos 3 algoritmos: Random Forest, Linear Regression y KNN
+
+```{r}
+set.seed(291020211)
+.split <- initial_split(automobile_clean)
+train <- training(.split)
+test <- testing(.split)
+set.seed(291020212)
+cv_folds <- vfold_cv(train, v = 5, strata = lnprice)
+
+no_normalize_rec <- recipe(lnprice~., data = train) %>% 
+  step_other(all_nominal_predictors(), threshold = .1) %>% 
+  step_dummy(all_nominal_predictors())
+
+normalized_rec <- no_normalize_rec %>%
+  step_normalize(all_predictors())
+
+```
+
+### Recipes
+
+```{r}
+linear_reg_spec <- 
+   linear_reg(penalty = tune(), mixture = tune()) %>% 
+   set_engine("glmnet")
+
+knn_spec <- nearest_neighbor(neighbors = tune(), dist_power = tune(), weight_func = tune()) %>% 
+   set_engine("kknn") %>% 
+   set_mode("regression")
+
+rf_spec <- rand_forest(mtry = tune(), min_n = tune(), trees = tune()) %>% 
+  set_engine("ranger", importance = 'impurity') %>% 
+  set_mode("regression")
+```
+
+### Workflowsets
+
+```{r}
+# Workflow para modelos que necesitan predictores normalizados
+normalized <- workflow_set(
+  preproc = list(normalized = normalized_rec), 
+  models = list(linear_reg = linear_reg_spec, KNN = knn_spec))
+
+# Workflow para RF
+no_pre_proc <- workflow_set(
+  preproc = list(simple = no_normalize_rec),
+  models = list(RF = rf_spec))
+
+# Union de los workflows
+all_workflows <- bind_rows(no_pre_proc, normalized) %>% 
+   mutate(wflow_id = gsub("(simple_)|(normalized_)", "", wflow_id))
+```
+
+### Ajuste de Hiperparametros
+
+```{r message=FALSE}
+# Ajuste de los hiperparametros
+grid_ctrl <- control_grid(save_pred = TRUE, parallel_over = "everything", save_workflow = TRUE)
+
+doParallel::registerDoParallel()
+grid_results <- 
+  all_workflows %>% 
+  workflow_map(seed = 291020213, resamples = cv_folds, grid = 25, 
+               metrics = metric_set(rmse), control = grid_ctrl, verbose = TRUE)
+```
+
+```{r}
+autoplot(grid_results, rank_metric = "rmse", metric = "rmse", select_best = TRUE) +
+  labs(title = "Ranking de Modelos por RMSE")
+```
+
+```{r}
+# Optimización de Hiperparámetros
+opt_plot_rf <- autoplot(grid_results, id = "RF", metric = "rmse")+ggtitle('Random Forest')
+opt_plot_lr <- autoplot(grid_results, id = "linear_reg", metric = "rmse")+
+  ggtitle('Linear Regression')
+opt_plot_knn <- autoplot(grid_results, id = "KNN", metric = "rmse")+ggtitle('KNN')+
+  theme(legend.position = "none")
+
+# Patchwork composition
+(opt_plot_lr+opt_plot_knn)/opt_plot_rf
+
+```
+
+## Evaluación de Errores
+
+Seleccionaremos las iteraciones de cada algoritmo que arroja los mejores resultados para el análisis de errores en los datos de test
+
+```{r}
+# Filtramos las mejores combinaciones de cada algoritmo
+best_results <- map2(
+  list(grid_results), 
+  grid_results$wflow_id,
+  ~.x %>%
+    extract_workflow_set_result(.y) %>% 
+    select_best(metric = "rmse"))
+
+# Predicción en Test
+test_results <- pmap(
+  list(list(grid_results),
+       grid_results$wflow_id,
+       best_results),
+  ~..1 %>% 
+    extract_workflow(..2) %>% 
+    finalize_workflow(..3) %>% 
+    last_fit(split = .split) 
+) %>% 
+  set_names(grid_results$wflow_id)
+
+test_results %>% map_df(collect_metrics, .id = 'model')
+```
+
+Vemos que los tres modelos superan por amplio margen el error base planteado donde el RMSE había arrojado 1. El modelo de RF arroja el RMSE mas bajo, seguido por la regresión lineal y KNN. Inspeccionemos ahora los errores de cada modelo.
+
+```{r}
+# Merge Test Prediction and test data
+test_predictions <- test_results %>%
+  map_df(collect_predictions, .id = 'model') %>% 
+  select(model, .pred, .row) %>% 
+  pivot_wider(names_from = model, values_from = .pred, names_prefix = 'pred_') %>% 
+  bind_cols(test)
+
+# Real value vs Predicted
+test_predictions %>%
+  select(starts_with('pred_'), lnprice, maker_target) %>% 
+  pivot_longer(starts_with('pred_')) %>%
+  mutate(model = str_remove(name, 'pred_')) %>% 
+  ggplot(aes(x = lnprice, y = value, color = maker_target)) + 
+  geom_abline(col = "green", lty = 2) + 
+  geom_point(alpha = 0.5) + 
+  coord_obs_pred() + 
+  facet_wrap(~model, nrow = 1) +
+  labs(x = "Valores Observados", y = "Predicciones", color = 'Tipo de marca',
+       title = 'Valores observados vs Predicciones por Modelo')
+
+```
+
+Podemos observar que efectivamente la nube de puntos esta mas ajustada a la recta en el modelo de Random Forest. El modelo de regresión lineal se ajusta bastante bien pero tiene varias predicciones alejadas de los valores observados, mientras que el modelo de KNN se ajusta muy bien a la clase de autos `lowcost` pero es bastante errático en las demás clases, especialmente en `midclass` donde los otros modelos aciertan mucho mas.
+
+Podemos ver mas en detalle el RMSE por categoría
+
+```{r}
+# RMSE for categorical variables colored by model 
+test_predictions %>%
+  select(starts_with('pred_'), lnprice, where(is.character)) %>% 
+  pivot_longer(starts_with('pred_'), names_to = 'model', values_to = 'prediction') %>% 
+  pivot_longer(-c(lnprice, model, prediction), names_to = 'variable', values_to = 'category') %>% 
+  mutate(model = str_remove(model, 'pred_')) %>% 
+  group_by(variable, category, model) %>% 
+  nest() %>% 
+  transmute(
+    .rmse = map(data,
+                ~rmse(.x, truth = lnprice, estimate = prediction) %>% select(.estimate))) %>% 
+  unnest(.rmse) %>% 
+  ggplot(aes(x = .estimate, y = category, color = model)) +
+  geom_jitter(size = 2, alpha = .6, width = 0, height = .1) +
+  facet_wrap(~variable, scales = 'free') +
+  theme(legend.position = 'top') +
+  labs(title = 'RMSE por categoría de Variables discretas', x = 'RMSE', y = 'Categoría')
+
+```
+
+Podemos ver que el modelo más consistente es el RF a pesar de ser superado en algunas categorías por los otros modelos. La mayor diferencia entre los modelos pareciera enfocarse en la variable `aspiration` categoría `turbo`, sin embargo solo el \~18% de los autos pertenecen esta categoría. Probablemente la categoría que mejor explica la diferencia de errores en los modelos sea en la variable `fuel_type` categoría `gas`, ya que representan \~90% de los automóviles.
+
+```{r}
+# Distribución del error por modelo
+test_predictions %>%
+  mutate(across(starts_with('pred_'), ~.x-lnprice, .names = '{.col}_error')) %>% 
+  select(ends_with('_error'), .row) %>% 
+  pivot_longer(-.row) %>% 
+  mutate(model = str_remove_all(name, 'pred_|_error')) %>% 
+  ggplot(aes(value, color = model)) +
+  geom_density(alpha = .4) +
+  labs(title = 'Distribución del Error por Modelo', y = 'Densidad',
+       x = 'Predicción - Valor Observado')
+
+```
+
+**Es mas conveniente que el modelo produzca errores por debajo del precio observado que por encima. Si bien una predicción por debajo del precio observado incurre en una posible perdida de clientes, comprar un automóvil por encima de su precio observado incurre en riesgo de no poder venderlo y asumir perdidas forzando una venta por debajo del precio de compra.**
+
+Cuando observamos la distribución de los errores vemos que el modelo de KNN produce más errores por encima del precio observado. **La distribucion de los residuos del modelo RF tiene una mayor curtosis, con más valores concentrados en 0 y menos en los extremos, lo cual es conveniente para el contexto de negocio.**
+
+```{r include=FALSE}
+butcher::butcher(test_results$RF$.workflow[[1]]) %>% saveRDS('implementacion/karvana_RF.RDS')
+butcher::butcher(test_results$linear_reg$.workflow[[1]]) %>% saveRDS('implementacion/karvana_LR.RDS')
+butcher::butcher(test_results$KNN$.workflow[[1]]) %>% saveRDS('implementacion/karvana_KNN.RDS')
+
+test_predictions %>% write_csv('implementacion/karvana_test_predictions.csv')
+```
+
+
+## Análisis de Riesgo
+
+Podemos realizar un análisis de riesgo definiendo algunos supuestos:
+
+-   Un nivel de tolerancia para la compra del automóvil en x% por encima y por debajo del precio real. Se asume que no se ejecuta la compra cuando las predicciones están fuera de estos rangos (el cliente elige otro proveedor o Karvana no acepta comprarlo)
+-   Un margen de ganancia sobre el precio real del automóvil
+
+```{r}
+# Seleccionamos las predicciones y transformamos a USD
+only_prediction <- test_predictions %>% 
+  select(starts_with('pred_'), lnprice) %>% 
+  mutate(across(everything(), ~exp(.x)*10000))
+
+# Función para calcular la ganancia por modelo, sujeto a supuestos
+profit_calculator <- function(df, profit_margin = .07, buy_treshold = .03){
+  
+  up_tresh <- 1+buy_treshold
+  down_tresh <- 1-buy_treshold
+  
+  df %>% 
+    mutate(
+      across(starts_with('pred_'), 
+             ~if_else(.x>lnprice*up_tresh | .x<lnprice*down_tresh, NA_real_, .x)),
+      sell_price = lnprice*(1+profit_margin),
+      across(starts_with('pred_'), ~sell_price-.x, .names = '{col}_earn')
+    ) %>% 
+    select(ends_with('_earn')) %>% 
+    summarise(across(everything(), sum, na.rm = T))
+}
+
+# Iterador
+profit_scenarios <- list(
+  .profit_margin = seq(0, .05, .01),
+  .buy_tresh = seq(.01, .09, .01)) %>% 
+  cross_df() %>% 
+  mutate(profit = map2(.profit_margin, .buy_tresh, 
+                       ~profit_calculator(only_prediction, .x, .y))) %>% 
+  unnest(profit)
+
+# Grafico de Escenarios
+profit_scenarios %>% 
+  pivot_longer(starts_with('pred_')) %>%
+  mutate(.buy_tresh = glue::glue('Tolerancia: {.buy_tresh*100}%'),
+         name = str_remove_all(name, 'pred_|_earn')) %>%
+  ggplot(aes(x = .profit_margin, y = value, color = name)) +
+  geom_point() +
+  geom_hline(yintercept = 0) +
+  facet_wrap(~.buy_tresh, scales = 'free') +
+  scale_x_continuous(label = scales::label_percent(accuracy = 1)) +
+  scale_y_continuous(label = scales::label_dollar(scale = 1/1000, suffix = 'k')) +
+  labs(x = 'Margen de ganancia sobre el Precio Observado', y = 'Ganancia en USD',
+       title = 'Escenarios de Ingresos',
+       subtitle = 'por Tolerancia a la compra y Margen de Ganancia',
+       color = 'Modelo')
+  
+```
+
+Los escenarios planteados sirven para reafirmar que el modelo con mejor métrica sigue siendo el más consistente en un análisis práctico para el contexto de negocio.
+
+**El modelo que debería ser implementado es el modelo de Random Forest**, tiene una distribución de errores más conveniente para el contexto de negocio, **además de tener el menor RMSE**. En un análisis de riesgo también demostró ser el modelo más consistente en la mayoría de los escenarios.

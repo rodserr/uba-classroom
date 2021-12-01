@@ -47,7 +47,10 @@ vignettes/*.pdf
 *.jpg
 *.docx
 *.txt
+*.zip
 
 !md_formats/encabezado.jpg
 
 # Hide evaluations
+otros/marino/
+
