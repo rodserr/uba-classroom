@@ -1,6 +1,7 @@
 
-navbarPage("Karvana Dashboard",
+navbarPage(title = "Karvana Dashboard",
            theme = bs_theme(primary = "#e9832d", font_scale = NULL, bootswatch = "sandstone"),
+           tags$head(tags$link(href = "style.css", rel = "stylesheet")),
            # Main Plots----
            tabPanel("Main",
                     sidebarLayout(
@@ -81,10 +82,6 @@ navbarPage("Karvana Dashboard",
                         )
                     )
            ),
-           # Risk Analysis----
-           tabPanel("Risk Analysis",
-                    br()
-           ),
            # Price Prediction----
            tabPanel("Price Prediction",
                     fluidRow(
@@ -105,6 +102,12 @@ navbarPage("Karvana Dashboard",
                         12,
                         plotOutput("prediction_plot", height = "280px") %>% withSpinner()
                       )
+                    )
+           ),
+           # Info----
+           tabPanel('Info',
+                    fluidRow(
+                      column(12, wellPanel(htmltools::includeMarkdown('md/info.md')))
                     )
            )
 )

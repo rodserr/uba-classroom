@@ -54,3 +54,5 @@ vignettes/*.pdf
 # Hide evaluations
 otros/marino/
 
+# Hide shinyapps.io
+rsconnect/
