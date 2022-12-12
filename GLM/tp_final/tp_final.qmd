@@ -1,0 +1,537 @@
+---
+title: "Maestría en Métodos Cuantitativos para la Gestión y Análisis de Datos en Organizaciones"
+subtitle: "Modelos de Regresión Generalizados"
+author: "Rodrigo Alejandro Serrano Morales"
+date: "Noviembre 2022"
+execute:
+  warning: false
+  message: false
+format:
+  titlepage-pdf:
+    toc: true
+    number-sections: true
+    colorlinks: true
+    titlepage: formal
+    titlepage-logo: "img/encabezado.png"
+    titlepage-header: "Predicción de la Cantidad de Afectados Producto de Siniestos Viales Ocurridos en la ciudad de Monterrey"
+    titlepage-footer: "Universidad de Buenos Aires"
+    titlepage-theme:
+      elements: ["\\logoblock", "\\titleblock", "Docente a cargo: Blanca Vitale \\vspace{0.8cm}", "\\authorblock", "\\headerblock",  "\\vspace{6.8cm}",  "\\footerblock", "\\dateblock"]
+      fontfamily: "Times New Roman"
+      page-align: "center"
+      title-style: "plain"
+      title-fontstyle: ["Large", "bfseries"]
+      title-spacing: 20
+      title-space-after: "0.8cm"
+      title-fontsize: 20
+      subtitle-fontstyle: "LARGE"
+      title-subtitle-space-between: "0.5cm"
+      author-style: "plain"
+      author-sep: "newline"
+      author-fontstyle: "textbf"
+      author-space-after: "1.5cm"
+      header-fontsize: 30
+      header-space-after: "0.8cm"
+      footer-style: "plain"
+      footer-fontstyle: ["Large", "textsc"]
+      footer-space-after: "0.5cm"
+      logo-size: "20.0cm"
+      logo-space-after: "1cm"
+editor_options: 
+  chunk_output_type: inline
+---
+
+<!-- https://nmfs-opensci.github.io/quarto_titlepages/02-titlepages.html#title-page-element-customization -->
+
+## Resumen
+
+El presente trabajo expone una comparación entre tres modelos de regresión lineal generalizados (Regresión Logística, Modelo Poisson Zero-Inflated y Modelo Logístico Acumulado con Odds Proporcionales) que intentan estimar una variable respuesta vinculada a la ocurrencia de lesionados o fallecidos en siniestros viales utilizando como predictores las características de dichos accidentes. Debido al enfoque de cada modelo, la variable de respuesta se define de distinta manera para cada uno de los modelos. 
+
+Según los resultados obtenidos, el mejor modelo fue la Regresión Logística. Por su lado el modelo de Odds Proporcionales arrojó resultados similares y confirmó la relación de las variables predictoras con la variable objetivo y el modelo de Poisson ZI no fue capaz de generalizar, por lo que sus resultados no fueron concluyentes. 
+
+Es necesario hacer un preprocesamiento de los datos en los que se extraigan mejores predictores y quizás aplicar técnicas que traten el imbalance de los datos como down-samplig o el over-sampling mejoren los resultados. El trabajo se realizó en su totalidad utilizando R y Quarto, el código puede ser consultado visitando el repositorio de github ()[]
+
+## Introducción
+
+Tener la capacidad de almacenar, procesar y analizar grandes volúmenes de datos permiten a las ciudades evolucionar su gestión, ayudando a tomar decisiones más rápidas y precisas. Los gobiernos que enfocan esfuerzos en mejorar sus plataformas de datos han cambiado la toma de decisiones en base a intuiciones y repeticiones de procesos obsoletos a toma de decisiones basado en datos.
+
+En Latinoamerica La movilidad de las personas se concentra cada vez más en el uso de vehículos particulares. Es por eso que el desarrollo urbanístico se ha centrado en su mayoría en la creación de autopistas y arterias viales que promueven el uso de los vehículos. Así como aumenta el uso de vehículos, también lo hacen los siniestros vehiculares, y con ello los fallecimientos.
+
+Los gobiernos tienen el deber de implementar políticas que disminuyan las tasas de siniestralidad vehicular. En actualidad pueden contar con herramientas de procesamiento y modelización de datos que les permita entender las causas mas riesgos en las vías vehiculares. En el presente trabajo se ejemplifican tres modelos lineales generalizados que buscan estimar la cantidad de afectaados de un siniestro vial. Esto permite a la gestión entender las causas con mayor y menor riesgos de afectados para enfocar políticas que disminuyan la cantidad de afectados
+
+```{r include=FALSE, eval=FALSE, echo=FALSE}
+knitr::knit_exit()
+```
+
+## Objetivo
+
+El objetivo del presente trabajo es estimar modelos de probabilidad para la predicción de la severidad de los siniestros viales de Monterrey y comparar el desempeño de modelos basados en GLM
+
+## Alcance
+
+Las ciudades lationamericanas no se caracterizan por contar con un transporte público eficiente, por lo que el uso de los vehículos privados a aumentado durante los últimos 20 años. Cada año más de 1,2 millones de personas pierden la vida en la carretera. Tanto así que los accidentes de tránsito son la primera causa de muerte entre personas de 15-29 años. Estimar la severidad de los siniestros en base a sus características ayuda a las gobernaciones a entender las causas y orígenes de los accidentes y encontrar patrones que puedan ser atendidos mediante políticas y gestión publica.
+
+## Hipótesis
+
+Es posible identificar las variables que más influyen en la severidad de un siniestro vial mediante la implementación de Modelos Lineales Generalizados
+
+## Análisis Metodológico
+
+En el presente trabajo se desarrollarán tres modelos generalizados cuyo objetivo es estimar la probabilidad de ocurrencia de afectados en los siniestros viales. Los modelos a utilizar son:
+
+- Modelo de Regresión Logística
+- Modelo de Poisson zero-inflated
+- Modelo Logístico Acumulado con Odds Proporcionales
+
+Los resultados son evaluados para cada modelo, sin compararse entres si, ya que la definición de la variable resuesta variará para cada modelo. 
+
+## Obtención de Datos
+
+Los datos fueron obtenidos del portal de datos abiertos de la alcaldía de Monterrey https://datos.monterrey.gob.mx/dataset/incidentes-viales/resource/6674f4c7-0013-42f0-9eb3-bb8d92502d1f y consta de 52.252 registros que representan siniestros en la ciudad de Monterrey desde Julio de 2020 hasta Julio de 2022. 
+
+Las variables `cantidad de fallecidos` y `cantidad de lesionados` se utilizan para generar la variable respuesta de cada modelo. El resto de las variables fueron modificadas para usarse como predictores, cuyos pasos se detallan en el apartado Pre-procesamiento de datos
+
+
+## Desarrollo
+
+Se desarrollaron tres modelos de regresión generalizados con distintos enfoques. El modelo de **Regresión Logística** estima la probabilidad de ocurrencia de afectados en un siniestro vial. El modelo de **Poisson Zero-Inflated** estima la cantidad de afectados en un siniestro vial. Finalmente el modelo **Logístico Acumulado con Odds Proporcionales** busca estimar la severidad del siniestro vial, definida en función de la cantidad de fallecidos y lesionados.
+
+### Pre-prosesamiento de datos
+
+Se utiliza el lenguaje de programación R para el procesamiento de datos y desarrollo
+
+```{r}
+library(tidyverse)
+library(lubridate)
+library(gt)
+library(rsample)
+library(easystats)
+library(pscl)
+library(MASS)
+options(digits = 10)
+```
+
+```{r}
+sini <- read_csv(here::here('data/data_glm/siniestros_viales.csv'))
+```
+
+A continuación se presentan las variables predictoras:
+
+- `weekday`: día de la semana de ocurrencia del siniestro agrupado por fin de semana (jueves, viernes, sabado y domingo) y dia de semana
+- `hour`: Hora del siniestro agrupada en Mañana, Tarde y Noche
+- `causa`: Causa del siniestro. Se agruparon los siniestros con menos de 300 ocurrencias en un mismo grupo para disminuir la dimensión de las categorías
+- `tip_acc`: Tipo de Accidente. Se agruparon los siniestros con menos de 300 ocurrencias en un mismo grupo para disminuir la dimensión de las categorías
+- `sit_pav`: Situación del Pavimento. Se agruparon los siniestros con menos de 300 ocurrencias en un mismo grupo para disminuir la dimensión de las categorías
+- `sit_clim`: Situación climática. Se agruparon los siniestros con menos de 300 ocurrencias en un mismo grupo para disminuir la dimensión de las categorías
+- `univeh`: Determina si hubo algún peatón, ciclista o motorizado involucrado en el accidente
+- `transporte_publico`: Determina si hubo algún vehículo perteneciente a un ente publico involucrado en el accidente
+- `edad_promedio`: Edad promedio de los conductores involucrados
+
+```{r}
+features <- sini %>% 
+  group_by(tipo_accidente, causa) %>%
+  mutate(edad_aux = mean(edad_promedio, na.rm = T)) %>% 
+  ungroup() %>% 
+  transmute(
+    total_lesionados,
+    total_muertos, 
+    weekday = wday(timestamp, label = T) %>% 
+      fct_collapse(
+        finsemana = c('jue', 'vie', 'sáb', 'dom'), 
+        inisemana = c('lun', 'mar', 'mié')
+      ) %>% as.character(),
+    hour = hour(timestamp),
+    hour = case_when(
+      hour >= 6 & hour < 11 ~ 'Maniana',
+      hour >= 11 & hour < 18 ~ 'Tarde',
+      T ~ 'Noche'
+    ),
+    causa = if_else(
+      str_detect(causa, 'NO RESPETO'), 
+      'NO RESPETO SEÑALAMIENTOS', 
+      causa
+    ),
+    causa = fct_lump_min(causa, 100, other_level = 'OTRO') %>% 
+      fct_collapse(
+        OTRO = c('OTRO', 'GIRO INDEBIDO', 'INVASION DE CARRIL', 'NO RESPETO SEÑALAMIENTOS')
+      ),
+    tip_acc = fct_lump_min(tipo_accidente, 300, other_level = 'OTRO') %>% 
+      fct_collapse(
+        OTRO = c('OTRO', 'CRUCERO')
+      ),
+    tip_via = fct_lump_min(tipo_vialidad, 3000, other_level = 'OTRO'),
+    sit_pav = fct_lump_min(situacion_pavimento, 3000, other_level = 'OTRO'),
+    sit_clim = fct_lump_min(situacion_climatica, 3000, other_level = 'OTRO'),
+    univeh = (peaton+bicicleta+motocicleta) > 0,
+    transporte_publico,
+    edad_promedio = if_else(is.na(edad_promedio), edad_aux, edad_promedio)
+  ) %>% 
+  na.omit()
+```
+
+Se dividen los datos aleatoreamente en entrenamiento y prueba utilizando el 33% de los datos para la validación de los modelos
+
+```{r}
+set.seed(159357)
+feat_split <- initial_split(features)
+train_data <- training(feat_split)
+test_data <- testing(feat_split)
+```
+
+```{r}
+skimr::skim(train_data)
+```
+
+```{r}
+.catvars <- features %>%  
+  dplyr::select(where(~!is.numeric(.x))) %>% 
+  names()
+
+.catvars %>% 
+  set_names(.catvars) %>% 
+  map(
+    ~features %>% 
+      mutate(n_afectados = total_muertos+total_lesionados > 0) %>% 
+      janitor::tabyl(var1 = n_afectados, var2 = !!as.symbol(.x))
+  )
+
+```
+
+### Modelo de Regresión Logística
+
+El modelo de regresión logística calcula probabilidades de ocurrencia de la variable dicotómica. En el presente trabajo la variable objetivo representa la ocurrencia de afectados en siniestros viales. Específicamente se define como afectados la ocurrencia de lesionados o fallecidos en dichos accidentes. De esta manera la probabilidad arrojada será aquella en la que un siniestro presente o no al menos un afectado, en función de las variables independientes
+
+$$
+P(Y=1| x_{1}, x_{2},...,x_{m} = \frac{1}{1+e^{\beta_{0}+\beta_{1}x_{1}+...+\beta_{m}x_{m}}}
+$$
+
+Se formula un modelo logístico para predecir la presencia o no de lesionados en el siniestro. Para esto se contruye la variable respuesta `tiene_afectados` que determina si la cantidad de fallecidos más la cantidad de lesionados es mayor a 0.
+
+```{r}
+logdata <- train_data %>%
+  mutate(tiene_afectados = as_factor((total_muertos + total_lesionados) > 0)) %>% 
+  dplyr::select(-total_muertos, -total_lesionados)
+
+logdata %>% 
+  janitor::tabyl(tiene_afectados) %>% 
+  mutate(percent = round(percent*100, 2) %>% paste0('%'))
+```
+
+La variable presenta un imbalance, atribuyendo el 95% de los datos a la categoría FALSE, es decir siniestros que no tienen lesionados
+
+```{r echo=TRUE}
+logmodel <- glm(tiene_afectados~., data = logdata, family ="binomial")
+summary(logmodel)
+```
+
+La devianza nula (modelo que solo utiliza la constante como predictor) es bastante superior a la devianza residual (modelo utilizando todos los predictores seleccionados). Esto quiere decir que el modelo regresado tiene poder predictivo, ya que disminuye la incertidumbre con respecto a un modelo base. En este caso la **devianza del modelo nulo es `r round(logmodel$null.deviance, 1)`** mientras que la **devianza residual es de `r round(logmodel$deviance, 1)`**.
+
+Se calcula el estadístico Chi-cuadrado, para medir la eficiencia predictiva de la variable respuesta. El valor del estadístico es la resta entre la devianza nula y residual, en este caso `r round(logmodel$null.deviance - logmodel$deviance, 1)`. Este estadístico permite calcular la probabilidad asociada y aplicar el contraste de hipotesis Chi-cuadrado
+
+```{r}
+1- pchisq(
+  q = logmodel$null.deviance - logmodel$deviance, # Vector de quantiles
+  df = logmodel$df.null - logmodel$df.residual # grados de libertad
+)
+```
+
+Siendo el valor de probabilidad menor a 5%, se rechaza la hipótesis nula de que un modelo de selección aleatoria es mejor que el planteado. Por lo que se puede afirmar que el modelo aporta significativamente a la predicción de la ocurrencia de lesionados en siniestros viales.
+
+Se calcula el coeficiente de bondad del ajuste, comparando la diferencia explicada entre las devianzas función a la devianza nula. Mientras más cercano a 1 mejor el ajuste
+
+```{r}
+(logmodel$null.deviance-logmodel$deviance) / logmodel$null.deviance
+```
+
+Se observa que aun hay gran parte de la variabilidad que el modelo no logra explicar
+
+Posteriormente es importante calcular los Odds-ratios de las variables predictoras. El Odd se define como la probabilidad de ocurrencia del evento en cuestión comparado con la probabilidad de no ocurrencia. El Odd ratio es entonces el indicador que mide el cambio en odds resultante de la alteración en una unidad del predictor.
+
+En este caso la variable respuesta refleja la ocurrencia de lesionados en un siniestro vial, por lo que el odd ratio será la probabilidad de que un siniestro vial exista algún lesionado dividido la probabilidad de que no exista lesionados. Se obtienen los odds Ratio del modelo al aplicar la exponencial a los coeficientes del modelo
+
+```{r}
+model_parameters(logmodel, exponentiate = T, ci_method = 'wald')
+```
+
+El **día se la semana** no es significativo, sin embargo se plantea que en los días de semana la probabilidad de ocurrencia de lesionados disminuye con respecto a la de no ocurrencia, esto es lógico dado que los días se semana al ser días laborales generan mayor tráfico vehicular y por ende más choques menores, mientras que en los fines de semana se registran más actividades recreativas que incitan al manejo imprudente
+
+En cuanto a la **hora del día**, se refleja que la variable es significativa y es en la noche donde la probabilidad de ocurrencia es 22% mayor con respecto a la de no ocurrencia, mientras que en la tarde es un 28% menor. Esto puede explicarse por la disminución de visibilidad en la que se incurre al manejar de noche, igualmente en la densidad vehicular del día comparado con la noche.
+
+La variable **causas** también generan conclusiones esperadas. Las causas *Estado de Alcoholismo* y *exceso de velocidad* aumentan la probabilidad de ocurrencia de lesionados frente a la no ocurrencia en un 86% y 195% respectivamente, mientras que la causa *no guardo distancia* la disminuye en un 78%, esta última representa accidentes menores generados en embotellamientos vehiculares, donde los vehículos no pueden desplazarse a una alta velocidad. En los tres casos la variable es significativa, mientras que en la causa *OTRO* el estadístico de wald arroja no significatividad para el modelo.
+
+El **tipo de accidente** con mayor odd ratio es el de *Volcadura*, seguido de *atropello* y *estrellamiento*, luego accidentes como *De reversa* o *lateral* tienen odd ratios menores a la unidad indicando que la probabilidad de ocurrencia de lesionados frente a la no ocurrencia es más baja, comparado con el tipo de accidente base el cual es *Alcance*. El único tipo de accidente no significativo según el test de wald es *Otro*.
+
+Las variables **tipo de vía** y **situación del pavimento**, arrojan un odd ratio menor a 1. Sin embargo, la variable **Situación Climática** indica que la categoría *Otro* tiene un mayor odd ratio con respecto a la categoría base Seco, lo cual es lógico pensando que en situaciones climáticas adversas ocurren siniestros con mayor gravedad.
+
+La variable univeh que indica **la presencia de motorizados, ciclistas o peatones** en el accidente es la variable con mayor odd ratio, lo cual es lógico pensando que estas modalidades de transporte no tienen protección física como lo tiene el conductor de un vehículo, por lo cual la incidencia de lesionados es mayor cuando están involucrados en el siniestro.
+
+La presencia de vehiculos de **transporte publico** en los siniestros aumenta la probabilidad de ocurrencia frente a la no ocurrencia de lesionados, esto puede explicarse dado que estos vehículos llevan más pasajeros que los vehículos privados, lo cual aumenta la exposición de personas a lesiones en la ocurrencia de un siniestro
+
+Finalmente la **edad promedio** de los involucrados no presenta significatividad frente al test de wald
+
+Como se expuso anteriormente, el dataset tiene un problema de balance, es decir es mucho más frecuente la categoría de no ocurrencia frente a la ocurrencia de lesionados. Esto provoca que la métrica de precisión sea cercana a la unidad en cualquier punto de corte de probabilidad para la variable respuesta ya que casi siempre el modelo va a estimar la no ocurrencia. Es por eso que en estos casos la métrica a optimizar no es la precisión sino la *especificidad*, que mide el ratio de predicciones verdaderas positivas entre el total de observaciones verdaderas. Sin embargo, maximizar la especificidad implica que el modelo tenderá a predecir muchas ocurrencia, aumentando los falsos positivos. Por eso tambien es importante medir el *Negative Predicted Value* que mide la cantidad de predicciones que el modelo determina como verdaderas cuando en realidad son falsas
+
+Se grafican los resultados de especificidad y NPV para cada punto de corte y se selecciona el óptimo
+
+```{r}
+logtradeoff <- ((0:10)/10) %>% 
+  set_names(((0:10)/10)) %>% 
+  map_df(
+    .id = 'cut',
+    ~tibble(
+      estimate = as_factor(logmodel$fitted.values>=.x),
+      truth = as_factor(logdata$tiene_afectados)
+    ) %>% 
+      yardstick::conf_mat(estimate = estimate, truth = truth) %>% 
+      summary()
+  )
+
+logtradeoff %>% 
+  filter(.metric %in% c('spec','npv')) %>% 
+  ggplot(aes(x = as.numeric(cut), y = .estimate, color = .metric)) +
+  geom_point()+
+  geom_line() +
+  theme_minimal() +
+  labs(color = 'Metrica', x = 'Punto de Corte de Probabilidad', y = 'Valor estimado')
+```
+
+El punto de corte de probabilidad óptimo es 0.20 asumiendo un npv de ~38%. Se observa la matriz de confusión y las metricas de performance con el punto de corte seleccionado
+
+```{r}
+.logmodel_cutvalue <- .2
+log_cm <- tibble(
+  estimate = as_factor(logmodel$fitted.values>=.logmodel_cutvalue),
+  truth = as_factor(logdata$tiene_afectados)
+  ) %>% 
+  yardstick::conf_mat(estimate = estimate, truth = truth)
+
+log_cm
+```
+
+
+```{r}
+summary(log_cm)
+```
+
+Finalmente evaluamos el modelo en la data de test con el punto de corte en 0.20
+
+```{r}
+logdata_test <- test_data %>%
+  mutate(tiene_afectados = as_factor((total_muertos + total_lesionados) > 0)) %>% 
+  dplyr::select(-total_muertos, -total_lesionados)
+
+.logmodel_prediction <- predict(logmodel, newdata = logdata_test, type = 'response')
+
+log_cm_test <- tibble(
+  estimate = as_factor(.logmodel_prediction >= .logmodel_cutvalue),
+  truth = as_factor(logdata_test$tiene_afectados)
+  ) %>% 
+  yardstick::conf_mat(estimate = estimate, truth = truth)
+```
+
+
+```{r}
+log_cm_test
+```
+
+```{r}
+summary(log_cm_test)
+```
+
+El modelo logra mantener una especificidad cercana a 60% y un npv cercano al 40%, lo cual indica que no hay riesgo de sobreestimación ya que los resultados son similares a los de entrenamiento. Se puede concluir que el modelo logra mejores resultados que un modelo aleatorio.
+
+### Modelo de Poisson Zero-Inflated
+
+Se utiliza un modelo poisson Zero-Inflated para atajar el problema de excesos de ceros en la variable respuesta. El modelo trata de captar esta característica representando a Y como una mezcla de masa puntual en Y=0 y una distribución de probabilidad para los valores de Y\>0
+
+$$
+Pr(Y_{i} = j) = \Biggl\{
+\begin{array}{l} 
+            \pi+(1-\pi_{i})+g(j) \quad j = 0\\
+            (1-\pi_{i})*g(j) \quad j = 1,2,...
+\end{array}
+$$
+
+Donde $\pi_{i}$ representa la probabilidad de obtener la masa puntual Y=0. El modelo asume que:
+
+-   $\pi_{i}$ es representado por un modelo binario como el logit
+
+-   $g(j)$ sigue una distribucion de poisson con media $\mu_{i}$
+
+La esperanza y varianza se definen como:
+
+$$
+E(Y_{i})=\pi_{i}*\mu_{i} \\
+Var(Y_{i})=\pi_{i}*\mu_{i}+\pi_{i}*\mu_{i}^{2}(1-\pi_{i})
+$$
+
+Para la construcción de la variable respuesta, en este caso se suma la cantidad de fallecidos y lesionados, se coloca un limite en 2 ya que mayores valores tienen una ocurrencia muy baja lo que podria sesgar al modelo.
+
+```{r}
+poidata <- train_data %>%
+  mutate(
+    n_afectados = total_lesionados + total_muertos,
+    n_afectados = if_else(n_afectados > 2, 2, n_afectados)
+  ) %>% 
+  dplyr::select(-total_lesionados, -total_muertos)
+
+poidata %>% 
+  janitor::tabyl(n_afectados) %>% 
+  mutate(percent = round(percent*100, 2) %>% paste0('%'))
+
+```
+
+Al igual que el modelo logístico, existe un problema de balanceo de los datos, donde el 95% de los siniestro no registran afectados mientras que el 3.4% y 0.8% resgistran 1 y 2 ó más afectados respectivamente
+
+```{r}
+poimodel <- zeroinfl(n_afectados~., data = poidata)
+summary(poimodel)
+```
+
+El modelo que discrimina entre la ocurrencia o no determina varias variables significativas, sin embargo el modelo de conteo identifica muy pocas variables significativas. Es decir, puede existir un problema en determinar la cantidad de afectados cuando es mayor a 0
+
+```{r}
+poipredtrain <- predict(poimodel, type = 'prob')
+
+poiestimatetrain <- as_factor(apply(poipredtrain, 1, which.max)-1) %>% 
+  forcats::lvls_expand(c('0', '1', '2'))
+
+poicm <- tibble(
+  estimate = poiestimatetrain,
+  truth = as_factor(poidata$n_afectados)
+) %>% 
+  yardstick::conf_mat(estimate = estimate, truth = truth)
+poicm
+```
+
+```{r}
+summary(poicm)
+```
+
+El modelo no tiene la capacidad de predecir los afectados, por lo que no se puede concluir sobre los resultados obtenidos
+
+### Modelo Logístico Acumulado con Odds Proporcionales
+
+El modelo logístico con Odds-Proporcionales se utiliza cuando la variable respuesta es de tipo nominal y esta conformada por más de dos categorías donde el orden agrega información. Se le llama acumulado ya que la probabilidad para cada categoría se va calculando acumulando las proporciones de ocurrencia. 
+
+El modelo conforma j-1 modelos de regresión logística (uno para cada categoría), excepto para a última, ya que su probabilidad acumulada no necesita modelización, cada una con sus respectivos coeficientes.
+
+Siendo Y la respuesta de tipo ordinal de J categorías, la probabilidad de que la variable Y tome como valor una categoría $j = 1, 2, ..., J$ se define como
+
+$$
+log \frac{P(Y \le j)}{P(Y > j)} = logit(P(Y \le j))
+$$
+
+En el presente trabajo se conformaron tres categorías para la variable severidad, dependiendo de la cantidad de fallecidos y lesionados:
+
+- Baja: Cuando no hay lesionados ni fallecidos
+
+- Media: Cuando hay 1 lesionado
+
+- Alta: Cuando hay al menos un fallecido ó más de 1 lesionado
+
+
+```{r}
+oddsdata <- train_data %>%
+  mutate(
+    severidad = case_when(
+      total_muertos > 0 | total_lesionados > 1 ~ 'alta',
+      total_lesionados > 0 ~ 'media',
+      T ~ 'baja'
+    ) %>% base::factor(levels = c('baja', 'media', 'alta'))
+  ) %>% 
+  dplyr::select(-total_muertos, -total_lesionados)
+
+oddsdata %>% 
+  janitor::tabyl(severidad) %>% 
+  mutate(percent = round(percent*100, 2) %>% paste0('%'))
+```
+
+Se demuestra que la variable respuesta sigue teniendo un problema de imbalance.
+
+```{r}
+oddsmodel <- polr(severidad~., data = oddsdata, Hess = T)
+parameters(oddsmodel, ci_method = 'wald', exponentiate = T)
+```
+
+Los odds ratios son muy parecidos a los arrojados por el modelo de regresión logística, por lo que podemos extrapolar las interpretaciones de los coeficientes a este modelo.
+
+Para ejecutar la prueba de significatividad global, se debe desarrollar un modelo base y proceder al análisis de las varianzas
+
+```{r}
+oddbase <- polr(severidad~1, data=oddsdata, Hess = T)
+
+anova(oddbase, oddsmodel)
+```
+
+Se obtiene la diferencia de las devianzas 4692, con 20 grados de libertad el valor p de la prueba de hipótesis es cero, por lo cual se rechaza la hipótesis nula, lo cual indica que las variables utilizadas en el modelo original aportan imformacion suficiente para mejorar el modelo base.
+
+Se verifica la matríz de confusión para evaluar resultados
+
+```{r}
+oddsestimatetrain <- as_factor(apply(fitted(oddsmodel), 1, which.max)) %>% 
+  forcats::fct_recode(baja = '1', media = '2', alta = '3')
+
+oddscm <- tibble(
+  estimate = oddsestimatetrain,
+  truth = oddsdata$severidad
+) %>%
+  yardstick::conf_mat(estimate = estimate, truth = truth)
+
+oddscm
+```
+
+```{r}
+summary(oddscm)
+```
+
+Se observa que debido al imbalance de las categorías, la mayoria de las observaciones son estimadas como severidad baja. El modelo arroja una precision muy elevada pero la métrica importante de especificidad no es alta
+
+Se prueba en los datos de Test
+
+```{r}
+oddsdatatest <- test_data %>%
+  mutate(
+    severidad = case_when(
+      total_muertos > 0 | total_lesionados > 1 ~ 'alta',
+      total_lesionados > 0 ~ 'media',
+      T ~ 'baja'
+    ) %>% base::factor(levels = c('baja', 'media', 'alta'))
+  ) %>% 
+  dplyr::select(-total_muertos, -total_lesionados)
+
+.oddsprediction <- predict(oddsmodel, newdata = oddsdatatest, type = 'class')
+
+oddscmtest <- tibble(
+  estimate = .oddsprediction,
+  truth = as_factor(oddsdatatest$severidad)
+  ) %>% 
+  yardstick::conf_mat(estimate = estimate, truth = truth)
+
+oddscmtest
+```
+
+```{r}
+summary(oddscmtest)
+```
+
+Los resultados son congruentes con los de la data de entrenamiento.
+
+## Resultados
+
+El modelo logístico es el modelo que mejor preformance obtuvo, con una especificidad de X, mientras que el modelo con odds proporcionales obtuvo una especificidad de X. El modelo de poisson ZIN no logro captar la variabilidad de los datos, por lo que los resultados no son concluyentes. Estos resultados si bien no logran ser los suficientemente buenos como para generar conclusiones dentro de la gestión pública, son resultados base de los cuales se pueden partir para comparar con modelos mas complejos.
+
+## Conclusiones
+
+Las variables predictoras no parecen ser suficientes para generar una estimación que pueda ser usada para la toma de decisiones en la gestión pública. Sin embargo, los coeficientes de las variables predictoras de los tres modelos, especialmente el modelo logístico y el modelo con odds proporcionales son muy similares lo cual indica que se logra identificar las categorías que más influyen en la ocurrencia de lesionados. Dicha información puede ser valiosa para el tomador de decisiones que podrá gestionar políticas orientadas a disminuir los accidentes cuyas caracteristicas se asocien a una alta probabilidad de generar lesionados.
+
+Un posible enfoque podría ser disminuir el tamaño del dataset, removiendo siniestros cuyas caracteristicas indiquen una muy baja probabilidad de generar afectados. Por ejemplo los siniestros causados en embotellamientos representan gran parte del dataset. Esto podría solventar el problema de imbalance de la categoria de afectados y quizas el modelo logre discriminar con mas exactitud la variable respuesta en cada modelo.
+## Bibliografía
+
+- McNulty K. (2022). Handbook of Regression Modeling in People Analytics: With Examples in R, Python and Julia. Chapman & Hall/CRC. Online Version. https://peopleanalytics-regression-book.org/
+
+- Ordinal Logistic Regression | R Data Analysis Examples. UCLA: Statistical Consulting Group. from https://stats.oarc.ucla.edu/r/dae/ordinal-logistic-regression/ (accessed November 20, 2022).
+
+- Kleiber C. Zeileis A (2008). Applied Econometrics With R. Springer. New York
+
+- Wooldridge J. (2010). Introducción a la Econometría Un Enfoque moderno. Cengage Learning Editores, S.A. México DF

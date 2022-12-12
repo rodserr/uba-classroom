@@ -1,0 +1,219 @@
+---
+title: "Modelos de Regresión Generalizados"
+subtitle: "Elaboración Y Presentación Preliminar del Trabajo Final"
+author: "Rodrigo Serrano"
+# knitr:
+#   opts_knit:
+#     root.dir: "/home/rodrigo/Documents/UBA/uba-classroom"
+title-slide-attributes: 
+  data-background-image: encabezado.png
+  data-background-size: 35%
+  data-background-position: 5% 5%
+format: 
+  revealjs:
+    theme: [default, custom.scss]
+    logo: encabezado.png
+    footer: "Actividad de Seguimiento 2"
+---
+
+## Tema objeto de la investigación
+
+-   Estimación de la severidad de los siniestros viales basado en Modelos Lineales Generalizados.
+
+-   Cada año más de 1,2 millones de personas pierden la vida en la carretera (Fuente: OMS)
+
+-   Los accidentes de tránsito son la primera causa de muerte entre personas de 15-29 años (Fuente: OMS)
+
+-   Estimar la severidad de los siniestros en base a sus características ayuda a las gobernaciones a entender las causas y origenes de los accidentes y encontrar patrones que puedan ser atacados mediante políticas y gestión publica
+
+## Hipótesis y Objetivos
+
+### Formulación de hipótesis
+
+-   Es posible identificar las variables que más influyen en la severidad de un siniestro vial mediante la implementación de Modelos Lineales Generalizados
+
+### Formulación de Objetivos
+
+-   Estimar modelos de probabilidad para la predicción de la severidad de los siniestros viales de una ciudad Latinoamericana y comparar el desempeño de modelos basados en GLM
+
+## Propuesta de bases de datos {.smaller}
+
+```{r}
+library(tidyverse)
+library(lubridate)
+library(gt)
+library(recipes)
+library(easystats)
+
+sini <- read_csv(here::here('data/siniestros_viales.csv'))
+```
+
+-   La base de datos a utilizar son los siniestros viales ocurridos en una ciudad latinoamericana durante el periodo Julio-2020 hasta Julio-2022
+
+-   La base cuenta con `r nrow(sini)` siniestros, cada uno con `r ncol(sini)` atributos:
+
+```{r}
+names(sini)
+```
+
+-   La variable objetivo categórica u ordinal (según el modelo) se contruirá en base a 2 variables
+    -   Cantidad de Fallecidos: `r sum(sini$numt_mue)`
+    -   Cantidad de Lesionados: `r sum(sini$numt_les)`
+    
+------------------------------------------------------------------------
+
+#### Propuesta de modelos de regresión generalizados a utilizar
+
+###### Modelo Logístico
+
+<font size="5">
+
+```{r echo=1}
+#| code-line-numbers: "3"
+#| output-location: column
+variable_objetivo <- sini %>% 
+  transmute(
+    tiene_afectados = (numt_les + numt_mue) > 0
+  )
+
+variable_objetivo %>% 
+  janitor::tabyl(tiene_afectados) %>% 
+  mutate(percent = round(percent*100, 2) %>% paste0('%'))
+```
+
+</font>
+
+###### Modelo de Poisson Zero-Inflated
+
+<font size="5">
+
+```{r echo=1}
+#| code-line-numbers: "3"
+#| output-location: column
+variable_objetivo <- sini %>%
+  transmute(
+    n_afectados = numt_les + numt_mue
+  )
+
+variable_objetivo %>% 
+  janitor::tabyl(n_afectados) %>% 
+  mutate(percent = round(percent*100, 2) %>% paste0('%'))
+```
+
+</font>
+
+###### Modelo Logístico Acumulado con Odds Proporcionales
+
+<font size="5">
+
+```{r echo=1}
+#| code-line-numbers: "4-6"
+#| output-location: column
+variable_objetivo <- sini %>%
+  transmute(
+    severidad = case_when(
+      numt_mue > 0 | numt_les > 1 ~ 'alta',
+      numt_les > 0 ~ 'media',
+      T ~ 'baja'
+    )
+  )
+
+variable_objetivo %>% 
+  janitor::tabyl(severidad) %>% 
+  mutate(percent = round(percent*100, 2) %>% paste0('%'))
+```
+
+</font>
+
+## Metodología
+
+<font size="2">
+
+```{r}
+skimr::skim(sini) %>% skimr::partition()
+```
+
+</font>
+
+## Avance del desarrollo del trabajo {.smaller}
+
+<font size="4">
+
+```{r echo=TRUE}
+#| output-location: column
+log_data <- sini %>% 
+  group_by(tip_acc, causa) %>%
+  mutate(edad_aux = mean(edad_promedio, na.rm = T)) %>% 
+  ungroup() %>% 
+  transmute(
+    tiene_afectados = (numt_les + numt_mue) > 0, 
+    weekday = wday(timestamp, label = F),
+    hour = hour(timestamp),
+    hour = case_when(
+      hour >= 6 & hour < 11 ~ 'Maniana',
+      hour >= 11 & hour < 18 ~ 'Tarde',
+      T ~ 'Noche'
+    ),
+    causa = if_else(
+      str_detect(causa, 'NO RESPETO'), 
+      'NO RESPETO SEÑALAMIENTOS', 
+      causa
+    ),
+    causa = fct_lump_min(causa, 100, other_level = 'OTRO'),
+    tip_acc = fct_lump_min(tip_acc, 300, other_level = 'OTRO'),
+    tip_via = fct_lump_min(tip_via, 3000, other_level = 'OTRO'),
+    sit_pav = fct_lump_min(sit_pav, 3000, other_level = 'OTRO'),
+    sit_clim = fct_lump_min(sit_clim, 3000, other_level = 'OTRO'),
+    univeh = (peaton+bicicleta+motocicleta) > 0,
+    transporte_carga,
+    transporte_publico,
+    edad_promedio = if_else(is.na(edad_promedio), edad_aux, edad_promedio)
+  ) %>% 
+  na.omit()
+
+log_model <- glm(tiene_afectados~., data = log_data, family ="binomial")
+summary(log_model)
+```
+
+</font>
+
+## Resultados
+
+:::: {.columns}
+
+::: {.column width="40%"}
+<!-- se incrementa la probabilidad de ocurrencia frente a la de no ocurrencia -->
+
+```{r}
+# check_model(log_model)
+# performance::model_performance(log_model)
+# performance_accuracy(log_model)
+# performance_pcp(log_model)
+# log_model %>% model_parameters(exponentiate = TRUE, ci_method="wald")
+
+log_cm <- tibble(
+  estimate = as_factor(log_model$fitted.values>=.2),
+  truth = as_factor(log_data$tiene_afectados)
+  ) %>% 
+  yardstick::conf_mat(estimate = estimate, truth = truth)
+
+log_cm
+
+```
+:::
+
+::: {.column width="60%"}
+```{r}
+summary(log_cm)
+```
+:::
+
+::::
+
+
+
+
+
+
+
+

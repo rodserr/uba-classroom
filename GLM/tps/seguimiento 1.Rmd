@@ -1,0 +1,140 @@
+---
+title: "**ESPECIALIZACIÓN EN  MÉTODOS CUANTITATIVOS PARA LA GESTIÓN Y ANÁLISIS DE DATOS EN ORGANIZACIONES**"
+subtitle: "**MODELOS DE REGRESIÓN GENERALIZADOS**"
+date: "**Actividad de seguimiento Nro. 1**"
+output: 
+  pdf_document:
+    # template: ../md_formats/tecnicas_template.tex
+    # keep_tex: true
+    highlight: default
+    includes:
+      # in_header: ../md_formats/tecnicas.tex
+urlcolor: blue
+---
+
+\
+
+<!-- ## Actividad: Simulación {.unlisted .unnumbered} -->
+
+\vskip 3.5em
+
+## Docente: Blanca Vitale {.unlisted .unnumbered}
+## Estudiante: Rodrigo Serrano {.unlisted .unnumbered}
+
+\newpage
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = F, message = F, fig.align = 'center')
+library(readr)
+library(performance)
+pruebas <- read_delim("GLM/data/CASO 3 PRUEBAS REND DATA SET.csv", delim = ";", escape_double = FALSE, trim_ws = TRUE)
+
+```
+
+## 1- EJERCICIO DE APLICACIÓN
+
+### a) Estimar los modelos de Regresión
+
+#### LOGIT
+
+```{r}
+(logit <- glm(GRADE ~ GPA + TUCE + PSI, data = pruebas, family = "binomial"))
+```
+
+#### PROBIT
+
+```{r}
+(probit <- glm(GRADE ~ GPA + TUCE + PSI, data = pruebas, family = binomial(link = "probit")))
+
+```
+
+#### MLP
+
+```{r}
+(mlp <- glm(GRADE ~ GPA + TUCE + PSI, data = pruebas, family = gaussian(link = "identity")))
+```
+
+
+### b) Realizar todas las pruebas de inferencia para evaluar la capacidad predictiva de cada modelo
+
+### c) Interpretar la incidencia de cada variable, en cada uno de los modelos, sobre la probabilidad de obtener la calificación máxima.
+
+```{r}
+summary(logit)
+summary(probit)
+summary(mlp)
+```
+
+En los tres modelos las variables significativas al 5% son GPA y PSI. En el caso del modelo MLP por cada punto adicional en el promedio de calificaciones iniciales aumenta en un 46% la probabilidad de que la calificación final sea A. Igualmente utilizar el nuevo método de enseñanza aumenta en un 37% la probabilidad de que la calificación final sea A.
+
+Para los modelos logit y probit, las variables GPA y PSI producen variaciones positivas en la probabilidad de que la calificación final sea A
+
+
+### d) Calcular todas las medidas de bondad de ajuste que sean posibles e interpretar los resultados obtenidos
+
+```{r}
+print_md(performance::compare_performance(logit, probit, mlp, metrics = c('AIC', 'BIC', 'R2')))
+```
+
+Los estadísticos AIX y BIC son mejores en los modelos logit y probit, el RSME es igual en los tres modelos, el R2 es mejor en los modelos logit y mlp
+
+```{r}
+chi_logit <- logit$null.deviance-logit$deviance
+chi_logit_df <- logit$df.null-logit$df.residual
+1-pchisq(chi_logit, df = chi_logit_df)
+
+chi_probit <- probit$null.deviance-probit$deviance
+chi_probit_df <- probit$df.null-probit$df.residual
+1-pchisq(chi_probit, df = chi_probit_df)
+
+```
+
+Según el contraste de significatividad del modelo, todos son mejores que el modelo base
+
+### e ) Comparar críticamente los resultados de los tres métodos
+
+```{r}
+caret::confusionMatrix(as.factor(ifelse(logit$fitted.values>.5, 1, 0)), as.factor(pruebas$GRADE))$table
+caret::confusionMatrix(as.factor(ifelse(probit$fitted.values>.5, 1, 0)), as.factor(pruebas$GRADE))$table
+caret::confusionMatrix(as.factor(ifelse(mlp$fitted.values>.5, 1, 0)), as.factor(pruebas$GRADE))$table
+```
+
+la matriz de confusión arrojada por los tres modelos es exactamente la misma, por lo que no aporta ningún valor para determinar el mejor modelo
+
+### f) Finalmente, qué método elegiría en este caso ? Por qué?
+
+En general ningún modelo es muy superior a otro, pero de elegir alguno seria el logit ya que tiene mayor R2 y menor AIC 
+
+## 2- Cuestionario
+
+### a) Cuáles son las componentes de un modelo lineal generalizado? Enumérelos y explique brevemente el significado de cada uno.
+
+#### Componente aleatoria binomial
+Identifica a la variable respuesta Y, y elige una distribución de probabilidad para ella
+
+#### Componente sistematica
+Especifica las variables explicativas, también llamadas factores, covariables o predictores
+
+#### Función link
+Relaciona  la componente aleatoria con la componente sistemática
+
+### b) En el modelo de regresión LOGIT, por qué se estiman los parámetros por el método de máxima verosimilitud y no se utiliza el método de cuadrados mínimos?
+
+Esto se debe a que la probabilidad entre las componentes no es lineal y no se cumplen los supuestos del modelo de Gauss-Markov
+
+### c) Conceptos de ODD y ODD RATIO. ¿Cuál es la interpretación de cada uno ?
+
+El odd mide el cociente de probabilidades para una observación i de elegir la opción 1 frente a la opción 0
+
+El odd ratio sirve para comparar la utilidad que la observación elegida proporciona al individuo i con respecto a la utilidad percibida por el individuo m
+
+### d) Cuál es el significado de la devianza y cómo se evalúa un modelo a través de una prueba de significación global?
+
+La devianza es la función logarítmica de verosimilitud -2LL que representa la variabilidad del modelo, valores mas bajo de la devianza indican que el modelo predice la variable respuesta con mayor precisión. La devianza sigue una distribución Chi-cuadrado
+
+En la prueba de significación global se compara LL(0) y LL(M). Donde LL(0) es el modelo base con un solo parámetro (intercepto) mientras que el LL(M) es el modelo estimado con los k parámetros. Si la devianza del modelo es mas pequeña que la devianza del modelo base, se rechaza la hipótesis nula de que ninguna variable es significativa
+
+### e) Para qué se utiliza la curva ROC ? A qué se le denomina umbral óptimo en una curva ROC y cuál es su interpretación?
+
+La curva ROC se utiliza para evaluar el ajuste de un modelo, utilizando las métricas de especificidad y sensibilidad.
+El umbral optimo es el punto que maximiza la sensibilidad, al mismo tiempo que minimiza la especificidad. Se interpreta como un trade-off entre las métricas y es el punto mas a la izquierda y arriba posible de la curva ROC
